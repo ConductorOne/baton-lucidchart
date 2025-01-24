@@ -3,8 +3,9 @@ package connector
 import (
 	"context"
 	"errors"
-	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	"io"
+
+	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
