@@ -6,10 +6,18 @@ import (
 )
 
 var (
+	LucidChartApiKeyField = field.StringField(
+		"lucidchart-api-key",
+		field.WithDescription("Your Lucidchart API key"),
+		field.WithRequired(true),
+	)
+
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
-	ConfigurationFields = []field.SchemaField{}
+	ConfigurationFields = []field.SchemaField{
+		LucidChartApiKeyField,
+	}
 
 	// FieldRelationships defines relationships between the fields listed in
 	// ConfigurationFields that can be automatically validated. For example, a

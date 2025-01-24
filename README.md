@@ -1,12 +1,17 @@
 ![Baton Logo](./baton-logo.png)
 
-# `baton-lucidchart` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-lucidchart.svg)](https://pkg.go.dev/github.com/conductorone/baton-lucidchart) ![main ci](https://github.com/conductorone/baton-lucidchart/actions/workflows/main.yaml/badge.svg)
+#
+
+`baton-lucidchart` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-lucidchart.svg)](https://pkg.go.dev/github.com/conductorone/baton-lucidchart) ![main ci](https://github.com/conductorone/baton-lucidchart/actions/workflows/main.yaml/badge.svg)
 
 `baton-lucidchart` is a connector for built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
 
 Check out [Baton](https://github.com/conductorone/baton) to learn more the project in general.
 
 # Getting Started
+
+1. Create an api key from [Lucidchart](https://lucid.readme.io/reference/creating-a-key)
+
 
 ## brew
 
@@ -37,6 +42,7 @@ baton resources
 # Data Model
 
 `baton-lucidchart` will pull down information about the following resources:
+
 - Users
 
 # Contributing, Support and Issues

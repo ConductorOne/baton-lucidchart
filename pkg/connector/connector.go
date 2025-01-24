@@ -2,6 +2,8 @@ package connector
 
 import (
 	"context"
+	"errors"
+	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	"io"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -9,7 +11,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
-type Connector struct{}
+type Connector struct {
+	apiKey string
+	client *client.LucidchartClient
+}
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
@@ -27,8 +32,8 @@ func (d *Connector) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.R
 // Metadata returns metadata about the connector.
 func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
-		DisplayName: "My Baton Connector",
-		Description: "The template implementation of a baton connector",
+		DisplayName: "Lucidchart",
+		Description: "Lucidchart connector",
 	}, nil
 }
 
@@ -39,6 +44,18 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context) (*Connector, error) {
-	return &Connector{}, nil
+func New(ctx context.Context, apiKey string) (*Connector, error) {
+	if apiKey == "" {
+		return nil, errors.New("baton-lucidchart: lucidchart API key is required")
+	}
+
+	lucidClient, err := client.NewLucidchartClient(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Connector{
+		apiKey: apiKey,
+		client: lucidClient,
+	}, nil
 }
