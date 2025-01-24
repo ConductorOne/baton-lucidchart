@@ -8,8 +8,10 @@ import (
 	"net/url"
 )
 
-var LucidchartApiFedRampUrl = "https://api.lucidgov.app"
-var LucidchartApiUrl = "https://api.lucid.app"
+type ClientUrl string
+
+var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
+var LucidchartApiUrl ClientUrl = "https://api.lucid.app"
 
 type LucidchartClient struct {
 	client *uhttp.BaseHttpClient
@@ -33,22 +35,52 @@ func NewLucidchartClient(ctx context.Context, apiKey string) (*LucidchartClient,
 	}, nil
 }
 
-func (c *LucidchartClient) doRequest(ctx context.Context, method string, urlAddress *url.URL, res interface{}, body interface{}) error {
-	var (
-		resp *http.Response
-		err  error
-	)
+func (c *LucidchartClient) newRequest(
+	ctx context.Context,
+	clientUrl ClientUrl,
+	method string,
+	path string,
+	body interface{},
+) (*http.Request, error) {
+	urlAddress, err := url.Parse(string(clientUrl))
+	if err != nil {
+		return nil, err
+	}
+
+	urlAddress = urlAddress.JoinPath(path)
+
+	options := []uhttp.RequestOption{
+		uhttp.WithBearerToken(c.apiKey),
+		uhttp.WithHeader("Lucid-Api-Version", "1"),
+		uhttp.WithAcceptJSONHeader(),
+	}
+
+	if body != nil {
+		options = append(options, uhttp.WithJSONBody(body))
+	}
 
 	req, err := c.client.NewRequest(
 		ctx,
 		method,
 		urlAddress,
-		uhttp.WithBearerToken(c.apiKey),
-		uhttp.WithJSONBody(body),
+		options...,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	return req, nil
+}
+
+func (c *LucidchartClient) doRequest(
+	ctx context.Context,
+	req *http.Request,
+	res interface{},
+) error {
+	var (
+		resp *http.Response
+		err  error
+	)
 
 	var options []uhttp.DoOption
 
@@ -56,11 +88,20 @@ func (c *LucidchartClient) doRequest(ctx context.Context, method string, urlAddr
 		options = append(options, uhttp.WithResponse(&res))
 	}
 
-	resp, err = c.client.Do(req, options...)
+	resp, err = c.client.Do(req.WithContext(ctx), options...)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	return nil
+}
+
+func addPageToken(req *http.Request, pageToken string) {
+	if pageToken != "" {
+		query := req.URL.Query()
+		query.Add("pageToken", pageToken)
+
+		req.URL.RawQuery = query.Encode()
+	}
 }
