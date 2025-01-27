@@ -2,10 +2,14 @@ package client
 
 import (
 	"context"
-	"github.com/conductorone/baton-sdk/pkg/uhttp"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"errors"
 	"net/http"
 	"net/url"
+
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ClientUrl string
@@ -14,11 +18,11 @@ var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
 var LucidchartApiUrl ClientUrl = "https://api.lucid.app"
 
 type LucidchartClient struct {
-	client *uhttp.BaseHttpClient
-	apiKey string
+	client         *uhttp.BaseHttpClient
+	lucidCharToken *LucidChartOAuth2
 }
 
-func NewLucidchartClient(ctx context.Context, apiKey string) (*LucidchartClient, error) {
+func NewLucidchartClient(ctx context.Context, opts *LucidChartOAuth2Options) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -29,9 +33,14 @@ func NewLucidchartClient(ctx context.Context, apiKey string) (*LucidchartClient,
 		return nil, err
 	}
 
+	lucidCharToken, err := NewLucidChartOAuth2(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
 	return &LucidchartClient{
-		client: uhttpClient,
-		apiKey: apiKey,
+		client:         uhttpClient,
+		lucidCharToken: lucidCharToken,
 	}, nil
 }
 
@@ -49,8 +58,13 @@ func (c *LucidchartClient) newRequest(
 
 	urlAddress = urlAddress.JoinPath(path)
 
+	token, err := c.lucidCharToken.GetToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	options := []uhttp.RequestOption{
-		uhttp.WithBearerToken(c.apiKey),
+		uhttp.WithBearerToken(token.AccessToken),
 		uhttp.WithHeader("Lucid-Api-Version", "1"),
 		uhttp.WithAcceptJSONHeader(),
 	}
@@ -76,6 +90,7 @@ func (c *LucidchartClient) doRequest(
 	ctx context.Context,
 	req *http.Request,
 	res interface{},
+	isRetryToken bool,
 ) error {
 	var (
 		resp *http.Response
@@ -90,6 +105,17 @@ func (c *LucidchartClient) doRequest(
 
 	resp, err = c.client.Do(req.WithContext(ctx), options...)
 	if err != nil {
+		if !isRetryToken && status.Code(err) == codes.Unauthenticated {
+			token, errToken := c.lucidCharToken.GetToken(ctx)
+			if errToken != nil {
+				return errors.Join(err, errToken)
+			}
+
+			req.Header.Set("Authorization", token.AccessToken)
+
+			return c.doRequest(ctx, req, res, true)
+		}
+
 		return err
 	}
 	defer resp.Body.Close()

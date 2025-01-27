@@ -19,7 +19,7 @@ func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]Us
 
 	addPageToken(req, pageToken)
 
-	err = c.doRequest(ctx, req, &response)
+	err = c.doRequest(ctx, req, &response, false)
 	if err != nil {
 		return nil, err
 	}

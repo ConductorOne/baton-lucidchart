@@ -6,9 +6,27 @@ import (
 )
 
 var (
-	LucidChartApiKeyField = field.StringField(
-		"lucidchart-api-key",
-		field.WithDescription("Your Lucidchart API key"),
+	LucidCodeKeyField = field.StringField(
+		"lucid-code",
+		field.WithDescription("The code key for the Lucidchart API."),
+		field.WithRequired(false),
+	)
+
+	LucidClientIdField = field.StringField(
+		"lucid-client-id",
+		field.WithDescription("The client ID for the Lucidchart API."),
+		field.WithRequired(true),
+	)
+
+	LucidClientSecretField = field.StringField(
+		"lucid-client-secret",
+		field.WithDescription("The client secret for the Lucidchart API."),
+		field.WithRequired(true),
+	)
+
+	LucidRedirectUrlField = field.StringField(
+		"lucid-redirect-url",
+		field.WithDescription("The redirect URL for the Lucidchart API."),
 		field.WithRequired(true),
 	)
 
@@ -16,7 +34,10 @@ var (
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
 	ConfigurationFields = []field.SchemaField{
-		LucidChartApiKeyField,
+		LucidCodeKeyField,
+		LucidClientIdField,
+		LucidClientSecretField,
+		LucidRedirectUrlField,
 	}
 
 	// FieldRelationships defines relationships between the fields listed in

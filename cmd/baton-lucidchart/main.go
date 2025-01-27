@@ -48,9 +48,12 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		return nil, err
 	}
 
-	apiKey := v.GetString(LucidChartApiKeyField.FieldName)
+	code := v.GetString(LucidCodeKeyField.FieldName)
+	clientID := v.GetString(LucidClientIdField.FieldName)
+	clientSecret := v.GetString(LucidClientSecretField.FieldName)
+	redirectURL := v.GetString(LucidRedirectUrlField.FieldName)
 
-	cb, err := connector.New(ctx, apiKey)
+	cb, err := connector.New(ctx, code, clientID, clientSecret, redirectURL)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

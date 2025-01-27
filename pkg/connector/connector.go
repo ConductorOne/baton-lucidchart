@@ -13,7 +13,6 @@ import (
 )
 
 type Connector struct {
-	apiKey string
 	client *client.LucidchartClient
 }
 
@@ -45,18 +44,34 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string) (*Connector, error) {
-	if apiKey == "" {
-		return nil, errors.New("baton-lucidchart: lucidchart API key is required")
+func New(ctx context.Context, code, clientId, clientSecret, redirectUrl string) (*Connector, error) {
+	if code == "" {
+		return nil, errors.New("code is required")
 	}
 
-	lucidClient, err := client.NewLucidchartClient(ctx, apiKey)
+	if clientId == "" {
+		return nil, errors.New("clientId is required")
+	}
+
+	if clientSecret == "" {
+		return nil, errors.New("clientSecret is required")
+	}
+
+	if redirectUrl == "" {
+		return nil, errors.New("redirectUrl is required")
+	}
+
+	lucidClient, err := client.NewLucidchartClient(ctx, &client.LucidChartOAuth2Options{
+		Code:         code,
+		ClientID:     clientId,
+		ClientSecret: clientSecret,
+		RedirectUrl:  redirectUrl,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &Connector{
-		apiKey: apiKey,
 		client: lucidClient,
 	}, nil
 }
