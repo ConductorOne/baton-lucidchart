@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -46,6 +46,7 @@ var (
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
 	ConfigurationFields = []field.SchemaField{
+		LucidApiKeyField,
 		LucidCodeKeyField,
 		LucidClientIdField,
 		LucidClientSecretField,

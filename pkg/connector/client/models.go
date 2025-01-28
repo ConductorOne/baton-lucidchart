@@ -1,6 +1,10 @@
 package client
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"time"
+)
 
 type User struct {
 	AccountId int      `json:"accountId"`
@@ -21,11 +25,24 @@ type Folder struct {
 }
 
 type FolderContent struct {
-	Id       string `json:"id"`
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	Shortcut bool   `json:"shortcut"`
-	Product  string `json:"product"`
+	Id       interface{} `json:"id"`
+	Type     string      `json:"type"`
+	Name     string      `json:"name"`
+	Shortcut bool        `json:"shortcut"`
+	Product  string      `json:"product"`
+}
+
+func (f *FolderContent) ID() string {
+	switch v := f.Id.(type) {
+	case int:
+		return strconv.Itoa(v)
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return ""
+	}
 }
 
 type AccountDocument struct {

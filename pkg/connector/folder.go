@@ -16,11 +16,9 @@ type folderBuilder struct {
 }
 
 func (o *folderBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
-	return userResourceType
+	return folderResourceType
 }
 
-// List returns all the users from the database as resource objects.
-// Users include a UserTrait because they are the 'shape' of a standard user.
 func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -31,21 +29,16 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 			return nil, "", nil, err
 		}
 
-		resources := make([]*v2.Resource, 0, len(folderContent))
+		l.Info("folderContent", zap.Any("folderContent", folderContent))
 
 		root, err := folderResource("root", "root", nil)
 		if err != nil {
 			return nil, "", nil, err
 		}
 
-		resources = append(resources, root)
-
-		innerFolders, err := folderResources(folderContent, root.Id)
-		if err != nil {
-			return nil, "", nil, err
+		resources := []*v2.Resource{
+			root,
 		}
-
-		resources = append(resources, innerFolders...)
 
 		return resources, nextToken, nil, err
 	}
@@ -70,12 +63,10 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 	return nil, "", nil, nil
 }
 
-// Entitlements always returns an empty slice for users.
 func (o *folderBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 
-// Grants always returns an empty slice for users since they don't have any entitlements.
 func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
@@ -84,11 +75,11 @@ func folderResources(folderContent []client.FolderContent, parentResourceID *v2.
 	var resources []*v2.Resource
 
 	for _, folder := range folderContent {
-		if folder.Name != "folder" {
+		if folder.Type != "folder" {
 			continue
 		}
 
-		newResource, err := folderResource(folder.Id, folder.Name, parentResourceID)
+		newResource, err := folderResource(folder.ID(), folder.Name, parentResourceID)
 		if err != nil {
 			return nil, err
 		}
@@ -102,14 +93,11 @@ func folderResources(folderContent []client.FolderContent, parentResourceID *v2.
 func folderResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	resourceOptions := []resource.ResourceOption{
 		resource.WithParentResourceID(parentResourceID),
-	}
-
-	if parentResourceID != nil {
-		resourceOptions = append(resourceOptions, resource.WithAnnotation(
+		resource.WithAnnotation(
 			&v2.ChildResourceType{
 				ResourceTypeId: folderResourceType.Id,
 			},
-		))
+		),
 	}
 
 	return resource.NewResource(
@@ -120,7 +108,7 @@ func folderResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resou
 	)
 }
 
-func newfolderBuilder(client *client.LucidchartClient) *folderBuilder {
+func newFolderBuilder(client *client.LucidchartClient) *folderBuilder {
 	return &folderBuilder{
 		client: client,
 	}
