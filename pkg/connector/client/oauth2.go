@@ -218,7 +218,7 @@ func (c *LucidChartOAuth2) refreshToken(ctx context.Context) (*GetTokenResponse,
 
 	defer resp.Body.Close()
 
-	l.Debug("Refresh token received", zap.Any("token", c.token))
+	l.Debug("Refresh token received", zap.Any("token", respVar))
 
 	return &respVar, nil
 }
