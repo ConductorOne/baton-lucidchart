@@ -40,8 +40,10 @@ func (f *FolderContent) ID() string {
 		return v
 	case fmt.Stringer:
 		return v.String()
+	case float64:
+		return fmt.Sprintf("%0.f", v)
 	default:
-		return ""
+		panic(fmt.Sprintf("unexpected type for id: %T", f.Id))
 	}
 }
 
