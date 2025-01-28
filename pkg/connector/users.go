@@ -25,7 +25,7 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 
-	user, err := o.client.ListUser(ctx, "")
+	user, nextToken, err := o.client.ListUser(ctx, pToken.Token)
 	if err != nil {
 		l.Error("Error getting users", zap.Error(err))
 		return nil, "", nil, err
@@ -41,7 +41,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		resources = append(resources, user)
 	}
 
-	return resources, "", nil, nil
+	return resources, nextToken, nil, nil
 }
 
 // Entitlements always returns an empty slice for users.

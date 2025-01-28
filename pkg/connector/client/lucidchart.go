@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -92,7 +93,7 @@ func (c *LucidchartClient) doRequest(
 	req *http.Request,
 	res interface{},
 	isRetryToken bool,
-) error {
+) (string, error) {
 	l := ctxzap.Extract(ctx)
 
 	var (
@@ -111,7 +112,7 @@ func (c *LucidchartClient) doRequest(
 		if !isRetryToken && status.Code(err) == codes.Unauthenticated {
 			token, errToken := c.lucidCharToken.GetToken(ctx)
 			if errToken != nil {
-				return errors.Join(err, errToken)
+				return "", errors.Join(err, errToken)
 			}
 
 			l.Debug("Retrying request with new token", zap.String("token", token.AccessToken))
@@ -121,17 +122,49 @@ func (c *LucidchartClient) doRequest(
 			return c.doRequest(ctx, req, res, true)
 		}
 
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
-	return nil
+	nextToken := resp.Header.Get("Link")
+
+	if nextToken != "" {
+		nextToken, err = extractPageToken(nextToken)
+		if err != nil {
+			return "", errors.Join(err, errors.New("failed to extract page token"))
+		}
+
+		return nextToken, nil
+	}
+
+	return "", nil
+}
+
+func extractPageToken(token string) (string, error) {
+	splitResult := strings.Split(token, ";")
+
+	if len(splitResult) < 2 {
+		return "", errors.New("expected two parts in the token")
+	}
+
+	value := strings.Trim(strings.TrimSpace(splitResult[0]), "<> ")
+
+	valueUrl, err := url.Parse(value)
+	if err != nil {
+		return "", err
+	}
+
+	query := valueUrl.Query()
+	pageToken := query.Get("pageToken")
+
+	return pageToken, nil
 }
 
 func addPageToken(req *http.Request, pageToken string) {
 	if pageToken != "" {
 		query := req.URL.Query()
 		query.Add("pageToken", pageToken)
+		query.Add("pageSize", "1")
 
 		req.URL.RawQuery = query.Encode()
 	}
