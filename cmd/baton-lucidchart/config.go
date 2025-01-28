@@ -6,6 +6,12 @@ import (
 )
 
 var (
+	LucidApiKeyField = field.StringField(
+		"lucid-api-key",
+		field.WithDescription("The API key for the Lucidchart API."),
+		field.WithRequired(true),
+	)
+
 	LucidCodeKeyField = field.StringField(
 		"lucid-code",
 		field.WithDescription("The code key for the Lucidchart API."),

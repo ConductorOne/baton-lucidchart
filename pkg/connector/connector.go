@@ -44,7 +44,11 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, code, clientId, clientSecret, redirectUrl, refreshToken string) (*Connector, error) {
+func New(ctx context.Context, apiKey, code, clientId, clientSecret, redirectUrl, refreshToken string) (*Connector, error) {
+	if apiKey == "" {
+		return nil, errors.New("apiKey is required")
+	}
+
 	if clientId == "" {
 		return nil, errors.New("clientId is required")
 	}
@@ -57,7 +61,7 @@ func New(ctx context.Context, code, clientId, clientSecret, redirectUrl, refresh
 		return nil, errors.New("redirectUrl is required")
 	}
 
-	lucidClient, err := client.NewLucidchartClient(ctx, &client.LucidChartOAuth2Options{
+	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, &client.LucidChartOAuth2Options{
 		Code:         code,
 		ClientID:     clientId,
 		ClientSecret: clientSecret,

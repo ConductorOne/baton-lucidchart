@@ -14,6 +14,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type LucidAuthType string
+
+const (
+	LucidAuthTypeOAuth2 LucidAuthType = "OAUTH2"
+	LucidAuthTypeApiKey LucidAuthType = "API_KEY"
+)
+
 type ClientUrl string
 
 var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
@@ -22,9 +29,10 @@ var LucidchartApiUrl ClientUrl = "https://api.lucid.app"
 type LucidchartClient struct {
 	client         *uhttp.BaseHttpClient
 	lucidCharToken *LucidChartOAuth2
+	apiKey         string
 }
 
-func NewLucidchartClient(ctx context.Context, opts *LucidChartOAuth2Options) (*LucidchartClient, error) {
+func NewLucidchartClient(ctx context.Context, apiKey string, opts *LucidChartOAuth2Options) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -43,6 +51,7 @@ func NewLucidchartClient(ctx context.Context, opts *LucidChartOAuth2Options) (*L
 	return &LucidchartClient{
 		client:         uhttpClient,
 		lucidCharToken: lucidCharToken,
+		apiKey:         apiKey,
 	}, nil
 }
 
@@ -52,6 +61,7 @@ func (c *LucidchartClient) newRequest(
 	method string,
 	path string,
 	body interface{},
+	authType LucidAuthType,
 ) (*http.Request, error) {
 	urlAddress, err := url.Parse(string(clientUrl))
 	if err != nil {
@@ -60,13 +70,22 @@ func (c *LucidchartClient) newRequest(
 
 	urlAddress = urlAddress.JoinPath(path)
 
-	token, err := c.lucidCharToken.GetToken(ctx)
-	if err != nil {
-		return nil, err
+	var accessToken string
+
+	switch authType {
+	case LucidAuthTypeOAuth2:
+		token, err := c.lucidCharToken.GetToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		accessToken = token.AccessToken
+
+	case LucidAuthTypeApiKey:
+		accessToken = c.apiKey
 	}
 
 	options := []uhttp.RequestOption{
-		uhttp.WithBearerToken(token.AccessToken),
+		uhttp.WithBearerToken(accessToken),
 		uhttp.WithHeader("Lucid-Api-Version", "1"),
 		uhttp.WithAcceptJSONHeader(),
 	}
@@ -164,7 +183,6 @@ func addPageToken(req *http.Request, pageToken string) {
 	if pageToken != "" {
 		query := req.URL.Query()
 		query.Add("pageToken", pageToken)
-		query.Add("pageSize", "1")
 
 		req.URL.RawQuery = query.Encode()
 	}
