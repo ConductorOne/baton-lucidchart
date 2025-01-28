@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"

@@ -1,4 +1,4 @@
-package config
+package main
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"

@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -24,23 +25,14 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 
 	// Root folder
 	if parentResourceID == nil && pToken.Token == "" {
-		folderContent, nextToken, err := o.client.RootFolderContent(ctx, pToken.Token)
-		if err != nil {
-			return nil, "", nil, err
-		}
-
-		l.Info("folderContent", zap.Any("folderContent", folderContent))
-
 		root, err := folderResource("root", "root", nil)
 		if err != nil {
 			return nil, "", nil, err
 		}
 
-		resources := []*v2.Resource{
-			root,
-		}
+		resources := []*v2.Resource{root}
 
-		return resources, nextToken, nil, err
+		return resources, "", nil, err
 	}
 
 	// Child folders
@@ -62,7 +54,6 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 
 	return nil, "", nil, nil
 }
-
 func (o *folderBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }

@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -17,7 +18,7 @@ import (
 type ValidationError struct {
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
-	ErrorUri         string `json:"error_uri"`
+	ErrorURI         string `json:"error_uri"`
 }
 
 type LucidChartOAuth2Options struct {
@@ -227,13 +228,12 @@ func parseLucidChartResponseError(resp *http.Response, err error) error {
 	if resp != nil && resp.StatusCode == http.StatusBadRequest {
 		defer resp.Body.Close()
 		var validationError ValidationError
-		errJson := json.NewDecoder(resp.Body).Decode(&validationError)
-		if errJson != nil {
-			return errors.Join(err, errJson)
+		errJSON := json.NewDecoder(resp.Body).Decode(&validationError)
+		if errJSON != nil {
+			return errors.Join(err, errJSON)
 		}
 
 		return errors.Join(err, errors.New(validationError.ErrorDescription))
-
 	}
 
 	return err

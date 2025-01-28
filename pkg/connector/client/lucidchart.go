@@ -3,10 +3,11 @@ package client
 import (
 	"context"
 	"errors"
-	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"

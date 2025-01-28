@@ -1,8 +1,9 @@
 package client
 
 import (
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractPageToken(t *testing.T) {
@@ -25,7 +26,6 @@ func TestExtractPageToken(t *testing.T) {
 
 	for _, s := range cases {
 		t.Run(s.Name, func(t *testing.T) {
-
 			token, err := extractPageToken(s.Link)
 			require.NoError(t, err)
 			require.Equal(t, s.ExpectedToken, token)

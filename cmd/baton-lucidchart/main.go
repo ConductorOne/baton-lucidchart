@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	config2 "github.com/conductorone/baton-lucidchart/cmd/baton-lucidchart/config"
 	"os"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector"
@@ -26,7 +25,7 @@ func main() {
 		"baton-lucidchart",
 		getConnector,
 		field.Configuration{
-			Fields: config2.ConfigurationFields,
+			Fields: ConfigurationFields,
 		},
 	)
 	if err != nil {
@@ -45,16 +44,16 @@ func main() {
 
 func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
-	if err := config2.ValidateConfig(v); err != nil {
+	if err := ValidateConfig(v); err != nil {
 		return nil, err
 	}
 
-	apiKey := v.GetString(config2.LucidApiKeyField.FieldName)
-	code := v.GetString(config2.LucidCodeKeyField.FieldName)
-	clientID := v.GetString(config2.LucidClientIdField.FieldName)
-	clientSecret := v.GetString(config2.LucidClientSecretField.FieldName)
-	redirectURL := v.GetString(config2.LucidRedirectUrlField.FieldName)
-	refreshToken := v.GetString(config2.LucidRefreshTokenField.FieldName)
+	apiKey := v.GetString(LucidApiKeyField.FieldName)
+	code := v.GetString(LucidCodeKeyField.FieldName)
+	clientID := v.GetString(LucidClientIdField.FieldName)
+	clientSecret := v.GetString(LucidClientSecretField.FieldName)
+	redirectURL := v.GetString(LucidRedirectUrlField.FieldName)
+	refreshToken := v.GetString(LucidRefreshTokenField.FieldName)
 
 	cb, err := connector.New(ctx, apiKey, code, clientID, clientSecret, redirectURL, refreshToken)
 	if err != nil {
