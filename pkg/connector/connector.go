@@ -19,7 +19,7 @@ type Connector struct {
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
-		newUserBuilder(),
+		newUserBuilder(d.client),
 	}
 }
 
@@ -44,11 +44,7 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, code, clientId, clientSecret, redirectUrl string) (*Connector, error) {
-	if code == "" {
-		return nil, errors.New("code is required")
-	}
-
+func New(ctx context.Context, code, clientId, clientSecret, redirectUrl, refreshToken string) (*Connector, error) {
 	if clientId == "" {
 		return nil, errors.New("clientId is required")
 	}
@@ -66,6 +62,7 @@ func New(ctx context.Context, code, clientId, clientSecret, redirectUrl string) 
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
 		RedirectUrl:  redirectUrl,
+		RefreshToken: refreshToken,
 	})
 	if err != nil {
 		return nil, err

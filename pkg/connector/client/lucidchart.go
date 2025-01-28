@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 
@@ -92,6 +93,8 @@ func (c *LucidchartClient) doRequest(
 	res interface{},
 	isRetryToken bool,
 ) error {
+	l := ctxzap.Extract(ctx)
+
 	var (
 		resp *http.Response
 		err  error
@@ -110,6 +113,8 @@ func (c *LucidchartClient) doRequest(
 			if errToken != nil {
 				return errors.Join(err, errToken)
 			}
+
+			l.Debug("Retrying request with new token", zap.String("token", token.AccessToken))
 
 			req.Header.Set("Authorization", token.AccessToken)
 

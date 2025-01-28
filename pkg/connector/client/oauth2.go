@@ -2,7 +2,9 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"sync"
@@ -11,6 +13,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
+
+type ValidationError struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+	ErrorUri         string `json:"error_uri"`
+}
 
 type LucidChartOAuth2Options struct {
 	Code string
@@ -21,7 +29,11 @@ type LucidChartOAuth2Options struct {
 	// ClientSecret is the application's secret.
 	ClientSecret string
 
+	// RedirectUrl is the URL to redirect to after the user has authenticated.
 	RedirectUrl string
+
+	// RefreshToken is the last refresh token to use to get a new access token.
+	RefreshToken string
 }
 
 type LucidChartOAuth2 struct {
@@ -72,6 +84,9 @@ func (t *GetTokenResponse) Expired() bool {
 func (c *LucidChartOAuth2) GetToken(ctx context.Context) (*GetTokenResponse, error) {
 	c.tokenMutex.Lock()
 	defer c.tokenMutex.Unlock()
+	l := ctxzap.Extract(ctx)
+
+	l.Info("Getting token")
 
 	if c.token != nil {
 		if c.token.Expired() {
@@ -83,6 +98,20 @@ func (c *LucidChartOAuth2) GetToken(ctx context.Context) (*GetTokenResponse, err
 			c.token = token
 		}
 		return c.token, nil
+	}
+
+	if c.token == nil && c.opts.RefreshToken != "" {
+		token, err := c.refreshToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		c.token = token
+		return c.token, nil
+	}
+
+	if c.opts.Code == "" {
+		return nil, errors.New("baton-lucidchart: no code found to generate token")
 	}
 
 	type Body struct {
@@ -98,7 +127,7 @@ func (c *LucidChartOAuth2) GetToken(ctx context.Context) (*GetTokenResponse, err
 		ClientId:     c.opts.ClientID,
 		ClientSecret: c.opts.ClientSecret,
 		GrantType:    "authorization_code",
-		RedirectURI:  "http://localhost:8080",
+		RedirectURI:  c.opts.RedirectUrl,
 	}
 
 	endPoint, err := url.Parse("https://api.lucid.co/oauth2/token")
@@ -121,16 +150,32 @@ func (c *LucidChartOAuth2) GetToken(ctx context.Context) (*GetTokenResponse, err
 
 	resp, err := c.client.Do(req, uhttp.WithResponse(&respVar))
 	if err != nil {
-		return nil, err
+		return nil, parseLucidChartResponseError(resp, err)
 	}
 
-	resp.Body.Close()
+	defer resp.Body.Close()
+
+	c.token = &respVar
+
+	l.Debug("Token received", zap.Any("token", c.token))
 
 	return &respVar, nil
 }
 
 func (c *LucidChartOAuth2) refreshToken(ctx context.Context) (*GetTokenResponse, error) {
-	if c.token == nil {
+	l := ctxzap.Extract(ctx)
+
+	l.Info("Getting refresh token")
+
+	var resfreshToken string
+
+	if c.token != nil {
+		resfreshToken = c.token.AccessToken
+	} else {
+		resfreshToken = c.opts.RefreshToken
+	}
+
+	if resfreshToken == "" {
 		return nil, errors.New("baton-lucidchart: no refresh token found")
 	}
 
@@ -142,7 +187,7 @@ func (c *LucidChartOAuth2) refreshToken(ctx context.Context) (*GetTokenResponse,
 	}
 
 	body := Body{
-		RefreshToken: c.token.RefreshToken,
+		RefreshToken: resfreshToken,
 		ClientId:     c.opts.ClientID,
 		ClientSecret: c.opts.ClientSecret,
 		GrantType:    "refresh_token",
@@ -168,10 +213,28 @@ func (c *LucidChartOAuth2) refreshToken(ctx context.Context) (*GetTokenResponse,
 
 	resp, err := c.client.Do(req, uhttp.WithResponse(&respVar))
 	if err != nil {
-		return nil, err
+		return nil, parseLucidChartResponseError(resp, err)
 	}
 
-	resp.Body.Close()
+	defer resp.Body.Close()
+
+	l.Debug("Refresh token received", zap.Any("token", c.token))
 
 	return &respVar, nil
+}
+
+func parseLucidChartResponseError(resp *http.Response, err error) error {
+	if resp != nil && resp.StatusCode == http.StatusBadRequest {
+		defer resp.Body.Close()
+		var validationError ValidationError
+		errJson := json.NewDecoder(resp.Body).Decode(&validationError)
+		if errJson != nil {
+			return errors.Join(err, errJson)
+		}
+
+		return errors.Join(err, errors.New(validationError.ErrorDescription))
+
+	}
+
+	return err
 }

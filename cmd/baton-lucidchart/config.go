@@ -30,6 +30,12 @@ var (
 		field.WithRequired(true),
 	)
 
+	LucidRefreshTokenField = field.StringField(
+		"lucid-refresh-token",
+		field.WithDescription("The refresh token for the Lucidchart API."),
+		field.WithRequired(false),
+	)
+
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
@@ -38,6 +44,7 @@ var (
 		LucidClientIdField,
 		LucidClientSecretField,
 		LucidRedirectUrlField,
+		LucidRefreshTokenField,
 	}
 
 	// FieldRelationships defines relationships between the fields listed in

@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	GetUsersPath = "api/users"
+	GetUsersPath = "/users"
 )
 
 func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]User, error) {
