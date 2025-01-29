@@ -7,9 +7,11 @@ import (
 )
 
 var (
-	GetUsersPath          = "/users"
-	RootFolderContentPath = "/folders/root/contents"
-	FolderContentPath     = "/folders/%s/contents"
+	GetUsersPath                      = "/users"
+	RootFolderContentPath             = "/folders/root/contents"
+	FolderContentPath                 = "/folders/%s/contents"
+	ListFolderUserCollaboratorsPath   = "/folders/%s/shares/users"
+	ListDocumentUserCollaboratorsPath = "/documents/%s/shares/users"
 )
 
 func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]User, string, error) {
@@ -52,6 +54,46 @@ func (c *LucidchartClient) FolderContent(ctx context.Context, folderId string, p
 	var response []FolderContent
 
 	path := fmt.Sprintf(FolderContentPath, folderId)
+
+	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response, false)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, folderId string, pageToken string) ([]FolderUserCollaboration, string, error) {
+	var response []FolderUserCollaboration
+
+	path := fmt.Sprintf(ListFolderUserCollaboratorsPath, folderId)
+
+	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response, false)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, documentId string, pageToken string) ([]DocumentUserCollaboration, string, error) {
+	var response []DocumentUserCollaboration
+
+	path := fmt.Sprintf(ListDocumentUserCollaboratorsPath, documentId)
 
 	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {

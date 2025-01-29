@@ -21,6 +21,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 	return []connectorbuilder.ResourceSyncer{
 		newUserBuilder(d.client),
 		newFolderBuilder(d.client),
+		newDocumentBuilder(d.client),
 	}
 }
 

@@ -15,3 +15,8 @@ var folderResourceType = &v2.ResourceType{
 	Id:          "folder",
 	DisplayName: "Folder",
 }
+
+var documentResourceType = &v2.ResourceType{
+	Id:          "document",
+	DisplayName: "Document",
+}
