@@ -10,8 +10,24 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more the proje
 
 # Getting Started
 
-1. Create an api key from [Lucidchart](https://lucid.readme.io/reference/creating-a-key)
+1. Create an api key from [Lucidchart](https://developer.lucid.co/reference/creating-a-key)
+    1. Required Api Permission
+        1. FolderRead
+        2. DocumentRead
+2. Create oAuth2 client from [Lucidchart](https://developer.lucid.co/reference/client-creation)
+    1. Generate the code using `authorizeAccount` https://developer.lucid.co/reference/obtaining-an-access-token
+    2. Use the code or token/refresh-token on the connector
 
+## Usage
+
+```
+baton-lucidchart \
+    --lucid-client-id="" \
+    --lucid-client-secret="" \
+    --lucid-redirect-url="" \
+    --lucid-api-key="" \
+    --lucid-code=""
+```
 
 ## brew
 
@@ -60,24 +76,26 @@ See [CONTRIBUTING.md](https://github.com/ConductorOne/baton/blob/main/CONTRIBUTI
 baton-lucidchart
 
 Usage:
-  baton-lucidchart [flags]
-  baton-lucidchart [command]
+  baton-lucidchart completion [command]
 
 Available Commands:
-  capabilities       Get connector capabilities
-  completion         Generate the autocompletion script for the specified shell
-  help               Help about any command
+  bash        Generate the autocompletion script for bash
+  fish        Generate the autocompletion script for fish
+  powershell  Generate the autocompletion script for powershell
+  zsh         Generate the autocompletion script for zsh
 
 Flags:
-      --client-id string             The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
-      --client-secret string         The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
-  -f, --file string                  The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-  -h, --help                         help for baton-lucidchart
-      --log-format string            The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
-      --log-level string             The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-  -p, --provisioning                 If this connector supports provisioning, this must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
-      --ticketing                    This must be set to enable ticketing support ($BATON_TICKETING)
-  -v, --version                      version for baton-lucidchart
+  -h, --help   help for completion
 
-Use "baton-lucidchart [command] --help" for more information about a command.
+Global Flags:
+      --client-id string       The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
+      --client-secret string   The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+  -f, --file string            The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
+      --log-format string      The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
+      --log-level string       The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
+  -p, --provisioning           This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --skip-full-sync         This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --ticketing              This must be set to enable ticketing support ($BATON_TICKETING)
+
+Use "baton-lucidchart completion [command] --help" for more information about a command.
 ```
