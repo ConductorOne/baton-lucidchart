@@ -163,7 +163,6 @@ func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 	}
 
 	return nil, fmt.Errorf("resource type %s is not supported", grant.Principal.Id.ResourceType)
-
 }
 
 func documentResources(folderContent []client.FolderContent, parentResourceID *v2.ResourceId) ([]*v2.Resource, error) {
