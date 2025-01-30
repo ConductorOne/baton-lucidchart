@@ -15,6 +15,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var UserFolderRoles = []string{
+	"owner",
+	"editandshare",
+	"edit",
+	"comment",
+	"view",
+}
+
 type LucidAuthType string
 
 const (
@@ -25,7 +33,7 @@ const (
 type ClientUrl string
 
 var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
-var LucidchartApiUrl ClientUrl = "https://api.lucid.app"
+var LucidchartApiUrl ClientUrl = "https://api.lucid.co"
 
 type LucidchartClient struct {
 	client         *uhttp.BaseHttpClient

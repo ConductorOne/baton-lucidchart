@@ -12,6 +12,8 @@ var (
 	FolderContentPath                 = "/folders/%s/contents"
 	ListFolderUserCollaboratorsPath   = "/folders/%s/shares/users"
 	ListDocumentUserCollaboratorsPath = "/documents/%s/shares/users"
+	UpsertFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
+	DeleteFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
 )
 
 func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]User, string, error) {

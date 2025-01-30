@@ -14,6 +14,7 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more the proje
     1. Required Api Permission
         1. FolderRead
         2. DocumentRead
+        3. FolderEdit (Provisioning)
 2. Create oAuth2 client from [Lucidchart](https://developer.lucid.co/reference/client-creation)
     1. Generate the code using `authorizeAccount` https://developer.lucid.co/reference/obtaining-an-access-token
     2. Use the code or token/refresh-token on the connector
