@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -151,6 +154,9 @@ func (o *folderBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotation
 
 		err := o.client.DeleteFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
+			}
 			return nil, err
 		}
 
