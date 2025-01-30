@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -19,7 +20,7 @@ import (
 const (
 	rootId = "root"
 
-	documentHasUserAccessEntitlement = "has-user"
+	documentHasUserAccessEntitlement = "user/"
 )
 
 type documentBuilder struct {
@@ -70,12 +71,14 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	var rv []*v2.Entitlement
 
-	assigmentOptions := []entitlement.EntitlementOption{
-		entitlement.WithGrantableTo(userResourceType),
-		entitlement.WithDescription(fmt.Sprintf("%s can acess %s", userResourceType.DisplayName, resource.DisplayName)),
-		entitlement.WithDisplayName(fmt.Sprintf("%s acess %s", userResourceType.DisplayName, resource.DisplayName)),
+	for _, role := range client.UserFolderRoles {
+		assigmentOptions := []entitlement.EntitlementOption{
+			entitlement.WithGrantableTo(userResourceType),
+			entitlement.WithDescription(fmt.Sprintf("%s can %s on %s", userResourceType.DisplayName, role, resource.DisplayName)),
+			entitlement.WithDisplayName(fmt.Sprintf("%s is %s of %s", userResourceType.DisplayName, role, resource.DisplayName)),
+		}
+		rv = append(rv, entitlement.NewPermissionEntitlement(resource, documentHasUserAccessEntitlement+role, assigmentOptions...))
 	}
-	rv = append(rv, entitlement.NewPermissionEntitlement(resource, documentHasUserAccessEntitlement, assigmentOptions...))
 
 	return rv, "", nil, nil
 }
@@ -103,12 +106,64 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pTo
 			"created": collaborator.Created.String(),
 		}
 
-		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement, userID, grant.WithGrantMetadata(metadata))
+		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+collaborator.Role, userID, grant.WithGrantMetadata(metadata))
 
 		grants = append(grants, newGrant)
 	}
 
 	return grants, nextToken, nil, nil
+}
+
+func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if resource.Id.ResourceType == userResourceType.Id {
+		userId := resource.Id.Resource
+		documentId := entitlement.Resource.Id.Resource
+
+		splitted := strings.Split(entitlement.Slug, "/")
+		if len(splitted) != 2 {
+			return nil, nil, fmt.Errorf("invalid entitlement slug %s", entitlement.Slug)
+		}
+
+		role := splitted[1]
+
+		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		userID, err := rs.NewResourceID(userResourceType, response.UserId)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		metadata := map[string]interface{}{
+			"role":    response.Role,
+			"created": response.Created.String(),
+		}
+
+		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
+
+		return []*v2.Grant{newGrant}, nil, nil
+	}
+
+	return nil, nil, fmt.Errorf("invalid resource type %s", resource.Id.ResourceType)
+}
+
+func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	if grant.Principal.Id.ResourceType == userResourceType.Id {
+		userId := grant.Principal.Id.Resource
+		documentId := grant.Entitlement.Resource.Id.Resource
+
+		err := o.client.DeleteDocumentUserCollaborator(ctx, documentId, userId)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("resource type %s is not supported", grant.Principal.Id.ResourceType)
+
 }
 
 func documentResources(folderContent []client.FolderContent, parentResourceID *v2.ResourceId) ([]*v2.Resource, error) {
