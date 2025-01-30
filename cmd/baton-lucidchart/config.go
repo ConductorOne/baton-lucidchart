@@ -15,7 +15,6 @@ var (
 	LucidCodeKeyField = field.StringField(
 		"lucid-code",
 		field.WithDescription("The code key for the Lucidchart API."),
-		field.WithRequired(false),
 	)
 
 	LucidClientIdField = field.StringField(
@@ -39,7 +38,6 @@ var (
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
 		field.WithDescription("The refresh token for the Lucidchart API."),
-		field.WithRequired(false),
 	)
 
 	// ConfigurationFields defines the external configuration required for the
