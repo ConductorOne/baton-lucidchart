@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/conductorone/baton-lucidchart/pkg/connector"
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
-	"github.com/conductorone/baton-lucidchart/pkg/connector"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +48,14 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		return nil, err
 	}
 
-	cb, err := connector.New(ctx)
+	apiKey := v.GetString(LucidApiKeyField.FieldName)
+	code := v.GetString(LucidCodeKeyField.FieldName)
+	clientID := v.GetString(LucidClientIdField.FieldName)
+	clientSecret := v.GetString(LucidClientSecretField.FieldName)
+	redirectURL := v.GetString(LucidRedirectUrlField.FieldName)
+	refreshToken := v.GetString(LucidRefreshTokenField.FieldName)
+
+	cb, err := connector.New(ctx, apiKey, code, clientID, clientSecret, redirectURL, refreshToken)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

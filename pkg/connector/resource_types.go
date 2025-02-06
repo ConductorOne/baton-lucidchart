@@ -10,3 +10,13 @@ var userResourceType = &v2.ResourceType{
 	DisplayName: "User",
 	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
 }
+
+var folderResourceType = &v2.ResourceType{
+	Id:          "folder",
+	DisplayName: "Folder",
+}
+
+var documentResourceType = &v2.ResourceType{
+	Id:          "document",
+	DisplayName: "Document",
+}
