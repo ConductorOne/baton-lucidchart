@@ -52,6 +52,5 @@ linters:
     - unconvert
     #- unparam
     - unused
-    # - varcheck ! deprecated since v1.49.0; replaced by 'unused'
     #- whitespace
   fast: false

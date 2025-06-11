@@ -18,7 +18,6 @@ linters:
     - structcheck
     - typecheck
     - unused
-    - varcheck
     - nakedret
     - gofmt
     - rowserrcheck

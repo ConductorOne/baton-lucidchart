@@ -11,23 +11,30 @@ func TestExtractPageToken(t *testing.T) {
 		Name          string
 		Link          string
 		ExpectedToken string
+		ExpectedError bool
 	}{
 		{
 			Name:          "empty link",
 			Link:          "",
 			ExpectedToken: "",
+			ExpectedError: true,
 		},
 		{
 			Name:          "link with token",
 			Link:          "<https://api.lucid.co/users?pageSize=1&pageToken=eyJvIjoiMSJ9>; rel=\"next\"",
 			ExpectedToken: "eyJvIjoiMSJ9",
+			ExpectedError: false,
 		},
 	}
 
 	for _, s := range cases {
 		t.Run(s.Name, func(t *testing.T) {
 			token, err := extractPageToken(s.Link)
-			require.NoError(t, err)
+			if s.ExpectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 			require.Equal(t, s.ExpectedToken, token)
 		})
 	}
