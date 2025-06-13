@@ -7,12 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	"go.uber.org/zap"
-
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"golang.org/x/oauth2"
 )
 
 var UserFolderRoles = []string{
@@ -36,12 +33,12 @@ var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
 var LucidchartApiUrl ClientUrl = "https://api.lucid.co"
 
 type LucidchartClient struct {
-	client         *uhttp.BaseHttpClient
-	lucidCharToken *LucidChartOAuth2
-	apiKey         string
+	client      *uhttp.BaseHttpClient
+	tokenSource oauth2.TokenSource
+	apiKey      string
 }
 
-func NewLucidchartClient(ctx context.Context, apiKey string, opts *LucidChartOAuth2Options) (*LucidchartClient, error) {
+func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -52,15 +49,10 @@ func NewLucidchartClient(ctx context.Context, apiKey string, opts *LucidChartOAu
 		return nil, err
 	}
 
-	lucidCharToken, err := NewLucidChartOAuth2(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
 	return &LucidchartClient{
-		client:         uhttpClient,
-		lucidCharToken: lucidCharToken,
-		apiKey:         apiKey,
+		client:      uhttpClient,
+		tokenSource: tokenSource,
+		apiKey:      apiKey,
 	}, nil
 }
 
@@ -83,12 +75,11 @@ func (c *LucidchartClient) newRequest(
 
 	switch authType {
 	case LucidAuthTypeOAuth2:
-		token, err := c.lucidCharToken.GetToken(ctx)
+		token, err := c.tokenSource.Token()
 		if err != nil {
 			return nil, err
 		}
 		accessToken = token.AccessToken
-
 	case LucidAuthTypeApiKey:
 		accessToken = c.apiKey
 	}
@@ -120,10 +111,7 @@ func (c *LucidchartClient) doRequest(
 	ctx context.Context,
 	req *http.Request,
 	res interface{},
-	isRetryToken bool,
 ) (string, error) {
-	l := ctxzap.Extract(ctx)
-
 	var (
 		resp *http.Response
 		err  error
@@ -137,19 +125,6 @@ func (c *LucidchartClient) doRequest(
 
 	resp, err = c.client.Do(req.WithContext(ctx), options...)
 	if err != nil {
-		if !isRetryToken && status.Code(err) == codes.Unauthenticated {
-			token, errToken := c.lucidCharToken.GetToken(ctx)
-			if errToken != nil {
-				return "", errors.Join(err, errToken)
-			}
-
-			l.Debug("Retrying request with new token", zap.String("token", token.AccessToken))
-
-			req.Header.Set("Authorization", token.AccessToken)
-
-			return c.doRequest(ctx, req, res, true)
-		}
-
 		return "", err
 	}
 	defer resp.Body.Close()

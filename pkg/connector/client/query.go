@@ -29,7 +29,7 @@ func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]Us
 
 	addPageToken(req, pageToken)
 
-	nextToken, err := c.doRequest(ctx, req, &response, false)
+	nextToken, err := c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, "", err
 	}
@@ -47,7 +47,7 @@ func (c *LucidchartClient) RootFolderContent(ctx context.Context, pageToken stri
 
 	addPageToken(req, pageToken)
 
-	nextToken, err := c.doRequest(ctx, req, &response, false)
+	nextToken, err := c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, "", err
 	}
@@ -67,7 +67,7 @@ func (c *LucidchartClient) FolderContent(ctx context.Context, folderId string, p
 
 	addPageToken(req, pageToken)
 
-	nextToken, err := c.doRequest(ctx, req, &response, false)
+	nextToken, err := c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, "", err
 	}
@@ -87,7 +87,7 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 
 	addPageToken(req, pageToken)
 
-	nextToken, err := c.doRequest(ctx, req, &response, false)
+	nextToken, err := c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, "", err
 	}
@@ -107,7 +107,7 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 
 	addPageToken(req, pageToken)
 
-	nextToken, err := c.doRequest(ctx, req, &response, false)
+	nextToken, err := c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, "", err
 	}

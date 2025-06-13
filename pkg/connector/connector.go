@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"golang.org/x/oauth2"
 )
 
 type Connector struct {
@@ -46,30 +47,16 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey, code, clientId, clientSecret, redirectUrl, refreshToken string) (*Connector, error) {
+func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource) (*Connector, error) {
 	if apiKey == "" {
 		return nil, errors.New("apiKey is required")
 	}
 
-	if clientId == "" {
-		return nil, errors.New("clientId is required")
+	if tokenSource == nil {
+		return nil, errors.New("tokenSource is required")
 	}
 
-	if clientSecret == "" {
-		return nil, errors.New("clientSecret is required")
-	}
-
-	if redirectUrl == "" {
-		return nil, errors.New("redirectUrl is required")
-	}
-
-	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, &client.LucidChartOAuth2Options{
-		Code:         code,
-		ClientID:     clientId,
-		ClientSecret: clientSecret,
-		RedirectUrl:  redirectUrl,
-		RefreshToken: refreshToken,
-	})
+	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource)
 	if err != nil {
 		return nil, err
 	}
