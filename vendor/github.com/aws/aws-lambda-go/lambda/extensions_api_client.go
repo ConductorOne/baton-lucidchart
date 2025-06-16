@@ -18,8 +18,8 @@ const (
 type extensionAPIEventType string
 
 const (
-	extensionInvokeEvent   extensionAPIEventType = "INVOKE"   //nolint:deadcode,unused
-	extensionShutdownEvent extensionAPIEventType = "SHUTDOWN" //nolint:deadcode,unused
+	extensionInvokeEvent   extensionAPIEventType = "INVOKE"   //nolint:deadcode,unused,varcheck
+	extensionShutdownEvent extensionAPIEventType = "SHUTDOWN" //nolint:deadcode,unused,varcheck
 )
 
 type extensionAPIClient struct {

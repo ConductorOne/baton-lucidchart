@@ -76,6 +76,7 @@ enable = [
     "unconvert",
     "unparam",
     "unused",
+    "varcheck",
     "wastedassign",
     "whitespace",
     # "wrapcheck",

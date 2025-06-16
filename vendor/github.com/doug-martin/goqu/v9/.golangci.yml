@@ -104,6 +104,7 @@ linters:
     - unconvert
     - unparam
     - unused
+    - varcheck
     - whitespace
 
   # don't enable:
