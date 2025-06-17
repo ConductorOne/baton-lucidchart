@@ -13,6 +13,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 )
 
 var version = "dev"
@@ -49,13 +50,26 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	}
 
 	apiKey := v.GetString(LucidApiKeyField.FieldName)
-	code := v.GetString(LucidCodeKeyField.FieldName)
 	clientID := v.GetString(LucidClientIdField.FieldName)
 	clientSecret := v.GetString(LucidClientSecretField.FieldName)
-	redirectURL := v.GetString(LucidRedirectUrlField.FieldName)
 	refreshToken := v.GetString(LucidRefreshTokenField.FieldName)
 
-	cb, err := connector.New(ctx, apiKey, code, clientID, clientSecret, redirectURL, refreshToken)
+	// Set up OAuth2 config
+	oauthConfig := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: "https://api.lucid.co/oauth2/token",
+		},
+	}
+
+	// Create token source from refresh token
+	token := &oauth2.Token{
+		RefreshToken: refreshToken,
+	}
+	tokenSource := oauthConfig.TokenSource(ctx, token)
+
+	cb, err := connector.New(ctx, apiKey, tokenSource)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

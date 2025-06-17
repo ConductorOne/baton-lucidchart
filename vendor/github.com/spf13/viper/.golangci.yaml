@@ -93,6 +93,7 @@ linters:
         # deprecated
         # - deadcode
         # - structcheck
+        # - varcheck
 
         # don't enable:
         # - asciicheck

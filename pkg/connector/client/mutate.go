@@ -21,7 +21,7 @@ func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, fol
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.doRequest(ctx, req, &response, false)
+	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (c *LucidchartClient) DeleteFolderUserCollaborator(ctx context.Context, fol
 	if err != nil {
 		return err
 	}
-	_, err = c.doRequest(ctx, req, nil, false)
+	_, err = c.doRequest(ctx, req, nil)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, d
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.doRequest(ctx, req, &response, false)
+	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (c *LucidchartClient) DeleteDocumentUserCollaborator(ctx context.Context, d
 	if err != nil {
 		return err
 	}
-	_, err = c.doRequest(ctx, req, nil, false)
+	_, err = c.doRequest(ctx, req, nil)
 	if err != nil {
 		return err
 	}
