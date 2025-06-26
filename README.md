@@ -77,26 +77,34 @@ See [CONTRIBUTING.md](https://github.com/ConductorOne/baton/blob/main/CONTRIBUTI
 baton-lucidchart
 
 Usage:
-  baton-lucidchart completion [command]
+  baton-lucidchart [flags]
+  baton-lucidchart [command]
 
 Available Commands:
-  bash        Generate the autocompletion script for bash
-  fish        Generate the autocompletion script for fish
-  powershell  Generate the autocompletion script for powershell
-  zsh         Generate the autocompletion script for zsh
+  capabilities       Get connector capabilities
+  completion         Generate the autocompletion script for the specified shell
+  config             Get the connector config schema
+  help               Help about any command
 
 Flags:
-  -h, --help   help for completion
+      --client-id string                                 The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
+      --client-secret string                             The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+      --external-resource-c1z string                     The path to the c1z file to sync external baton resources with ($BATON_EXTERNAL_RESOURCE_C1Z)
+      --external-resource-entitlement-id-filter string   The entitlement that external users, groups must have access to sync external baton resources ($BATON_EXTERNAL_RESOURCE_ENTITLEMENT_ID_FILTER)
+  -f, --file string                                      The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
+  -h, --help                                             help for baton-lucidchart
+      --log-format string                                The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
+      --log-level string                                 The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
+      --lucid-api-key string                             required: The API key for the Lucidchart API. ($BATON_LUCID_API_KEY)
+      --lucid-client-id string                           required: The OAuth2 client ID for the Lucidchart API. ($BATON_LUCID_CLIENT_ID)
+      --lucid-client-secret string                       required: The OAuth2 client secret for the Lucidchart API. ($BATON_LUCID_CLIENT_SECRET)
+      --lucid-refresh-token string                       required: The OAuth2 refresh token for the Lucidchart API. ($BATON_LUCID_REFRESH_TOKEN)
+      --otel-collector-endpoint string                   The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided) ($BATON_OTEL_COLLECTOR_ENDPOINT)
+  -p, --provisioning                                     This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --skip-full-sync                                   This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --sync-resources strings                           The resource IDs to sync ($BATON_SYNC_RESOURCES)
+      --ticketing                                        This must be set to enable ticketing support ($BATON_TICKETING)
+  -v, --version                                          version for baton-lucidchart
 
-Global Flags:
-      --client-id string       The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
-      --client-secret string   The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
-  -f, --file string            The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-      --log-format string      The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
-      --log-level string       The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-  -p, --provisioning           This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
-      --skip-full-sync         This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
-      --ticketing              This must be set to enable ticketing support ($BATON_TICKETING)
-
-Use "baton-lucidchart completion [command] --help" for more information about a command.
+Use "baton-lucidchart [command] --help" for more information about a command.
 ```
