@@ -24,7 +24,7 @@ jobs:
         run: go build -o connector ./cmd/baton-lucidchart
 
       - name: Run and save output
-        run: ./connector capabilities > baton_capabilities.json
+        run: ./connector --lucid-api-key="api-key" --lucid-client-id="client-id" --lucid-client-secret="client-secret" --lucid-refresh-token="refresh-token" capabilities > baton_capabilities.json
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
