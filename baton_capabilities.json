@@ -3,6 +3,26 @@
   "resourceTypeCapabilities": [
     {
       "resourceType": {
+        "id": "document",
+        "displayName": "Document"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC",
+        "CAPABILITY_PROVISION"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "folder",
+        "displayName": "Folder"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC",
+        "CAPABILITY_PROVISION"
+      ]
+    },
+    {
+      "resourceType": {
         "id": "user",
         "displayName": "User",
         "traits": [
@@ -15,6 +35,7 @@
     }
   ],
   "connectorCapabilities": [
+    "CAPABILITY_PROVISION",
     "CAPABILITY_SYNC"
   ],
   "credentialDetails": {}
