@@ -58,10 +58,10 @@ jobs:
       CONNECTOR_ENTITLEMENT: 'entitlement:group:1234:member'
       CONNECTOR_PRINCIPAL: 'user:9876'
       CONNECTOR_PRINCIPAL_TYPE: 'user'
-      lucid-api-key:        ${{ secrets.LUCID_API_KEY }}
-      lucid-client-id:      ${{ secrets.LUCID_CLIENT_ID }}
-      lucid-client-secret:  ${{ secrets.LUCID_CLIENT_SECRET }}
-      lucid-refresh-token:  ${{ secrets.LUCID_REFRESH_TOKEN }}
+      BATON_LUCID_API_KEY:        ${{ secrets.LUCID_API_KEY }}
+      BATON_LUCID_CLIENT_ID:      ${{ secrets.LUCID_CLIENT_ID }}
+      BATON_LUCID_CLIENT_SECRET:  ${{ secrets.LUCID_CLIENT_SECRET }}
+      BATON_LUCID_REFRESH_TOKEN:  ${{ secrets.LUCID_REFRESH_TOKEN }}
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
