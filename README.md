@@ -13,7 +13,7 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more the proje
 1. Create an api key from [Lucidchart](https://developer.lucid.co/reference/creating-a-key)
     1. Required Api Permission
         1. FolderRead
-        2. DocumentRead
+        2. DocumentEdit
         3. FolderEdit (Provisioning)
 2. Create oAuth2 client from [Lucidchart](https://developer.lucid.co/reference/client-creation)
     1. Generate the code using `authorizeAccount` https://developer.lucid.co/reference/obtaining-an-access-token
@@ -25,9 +25,8 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more the proje
 baton-lucidchart \
     --lucid-client-id="" \
     --lucid-client-secret="" \
-    --lucid-redirect-url="" \
-    --lucid-api-key="" \
-    --lucid-code=""
+    --lucid-refresh-token="" \
+    --lucid-api-key=""
 ```
 
 ## brew
