@@ -37,6 +37,58 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	return &v2.ConnectorMetadata{
 		DisplayName: "Lucidchart",
 		Description: "Lucidchart connector",
+		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
+			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
+				"firstName": {
+					DisplayName: "First Name",
+					Required:    true,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Order: 1,
+				},
+				"lastName": {
+					DisplayName: "Last Name",
+					Required:    true,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Order: 2,
+				},
+				"email": {
+					DisplayName: "Email",
+					Required:    true,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Order: 3,
+				},
+				"username": {
+					DisplayName: "Username",
+					Required:    false,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Order: 4,
+				},
+				"password": {
+					DisplayName: "Password",
+					Required:    false,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Order: 5,
+				},
+				"roles": {
+					DisplayName: "Roles",
+					Required:    false,
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringListField{
+						StringListField: &v2.ConnectorAccountCreationSchema_StringListField{},
+					},
+					Order: 6,
+				},
+			},
+		},
 	}, nil
 }
 

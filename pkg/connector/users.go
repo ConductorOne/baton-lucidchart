@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -10,6 +11,8 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 )
 
@@ -53,6 +56,116 @@ func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *
 // Grants always returns an empty slice for users since they don't have any entitlements.
 func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
+}
+
+func (b *userBuilder) CreateAccountCapabilityDetails(_ context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return &v2.CredentialDetailsAccountProvisioning{
+		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{
+			v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD,
+		},
+		PreferredCredentialOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD,
+	}, nil, nil
+}
+
+func (o *userBuilder) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.CredentialOptions,
+) (
+	connectorbuilder.CreateAccountResponse,
+	[]*v2.PlaintextData,
+	annotations.Annotations,
+	error,
+) {
+	// Extract fields from the profile
+	profile := accountInfo.GetProfile().AsMap()
+
+	firstName, ok := profile["firstName"].(string)
+	if !ok {
+		return nil, nil, nil, errors.New("missing or invalid firstName")
+	}
+	lastName, ok := profile["lastName"].(string)
+	if !ok {
+		return nil, nil, nil, errors.New("missing or invalid lastName")
+	}
+	email, ok := profile["email"].(string)
+	if !ok {
+		return nil, nil, nil, errors.New("missing or invalid email")
+	}
+	username, _ := profile["username"].(string)
+	password, _ := profile["password"].(string)
+
+	var roles []string
+	if r, ok := profile["roles"].([]interface{}); ok {
+		for _, v := range r {
+			if s, ok := v.(string); ok {
+				roles = append(roles, s)
+			}
+		}
+	}
+
+	if password == "" {
+		// generate if not provided
+		var err error
+		password, err = generateCredentials(credentialOptions)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	if len(roles) == 0 {
+		roles = []string{"editor"}
+	}
+
+	payload := &client.UserCreatePayload{
+		FirstName: firstName,
+		LastName:  lastName,
+		Email:     email,
+		Username:  username,
+		Password:  password,
+		Roles:     roles,
+	}
+
+	// Create user via REST client
+	created, annotations, err := o.client.CreateUser(ctx, payload)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Convert to resource
+	res, err := userResource(*created)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	resp := &v2.CreateAccountResponse_SuccessResult{Resource: res, IsCreateAccountResult: true}
+
+	var plaintext []*v2.PlaintextData
+	if password == "" {
+		plaintext = []*v2.PlaintextData{{
+			Name:        "password",
+			Description: "Generated password for the new user",
+			Bytes:       []byte(password),
+		}}
+	}
+
+	return resp, plaintext, annotations, nil
+}
+
+func generateCredentials(credentialOptions *v2.CredentialOptions) (string, error) {
+	if credentialOptions.GetRandomPassword() == nil {
+		return "", errors.New("unsupported credential option")
+	}
+
+	password, err := crypto.GenerateRandomPassword(
+		&v2.CredentialOptions_RandomPassword{
+			Length: min(12, credentialOptions.GetRandomPassword().GetLength()),
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+	return password, nil
 }
 
 func userResource(user client.User) (*v2.Resource, error) {
