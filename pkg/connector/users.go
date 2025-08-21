@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -101,6 +102,20 @@ func (o *userBuilder) CreateAccount(
 			if s, ok := v.(string); ok {
 				roles = append(roles, s)
 			}
+		}
+	}
+
+	// Validate that all roles are valid
+	validRoles := map[string]bool{
+		"billing-admin":  true,
+		"team-admin":     true,
+		"document-admin": true,
+		"template-admin": true,
+	}
+
+	for _, role := range roles {
+		if !validRoles[role] {
+			return nil, nil, nil, fmt.Errorf("invalid role '%s'. Valid roles are: billing-admin, team-admin, document-admin, template-admin", role)
 		}
 	}
 

@@ -1,0 +1,54 @@
+While developing the connector, please fill out this form. This information is needed to write docs and to help other users set up the connector.
+
+## Connector capabilities
+
+1. What resources does the connector sync?
+
+    -Users
+    -Folders
+    -Documents
+
+2. Can the connector provision any resources? If so, which ones? 
+
+    Yes, folders, documents and accounts
+
+## Connector credentials 
+
+1. What credentials or information are needed to set up the connector? (For example, API key, client ID and secret, domain, etc.)
+
+    -API Key
+    -OAuth 2 credentials (client-id and client-secret)
+
+2. For each item in the list above: 
+
+   * How does a user create or look up that credential or info? Please include links to (non-gated) documentation, screenshots (of the UI or of gated docs), or a video of the process. 
+
+       In the Lucidchart developer portal, navigate to API Keys.
+
+    Click + Create API Key.
+
+    Give the new key a name, such as “ConductorOne” and set an expiration, if desired.
+
+    Give the key the following grants:
+        Documents - Edit
+        Folders - Edit
+
+    Click Generate API key. The new key is created.
+
+    Carefully copy and save the API key.
+
+    OAuth 2: https://developer.lucid.co/docs/oauth-20-client-creation 
+
+   * Does the credential need any specific scopes or permissions? If so, list them here. 
+
+        Documents - Edit
+        Folders - Edit
+
+   * If applicable: Is the list of scopes or permissions different to sync (read) versus provision (read-write)? If so, list the difference here. 
+
+        • For synchronization (read only) the "Documents - View" and "Folders - View" permissions are sufficient.
+        • For provisioning (read-write) you need "Documents - Edit" and "Folders - Edit".
+
+   * What level of access or permissions does the user need in order to create the credentials? (For example, must be a super administrator, must have access to the admin console, etc.)  
+
+        The user must have a "Team Admin" role or higher in Lucidchart to access the developer portal and manage API or OAuth keys.
