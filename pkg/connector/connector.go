@@ -71,21 +71,13 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 					},
 					Order: 4,
 				},
-				"password": {
-					DisplayName: "Password",
-					Required:    false,
-					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
-						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
-					},
-					Order: 5,
-				},
 				"roles": {
 					DisplayName: "Roles",
 					Required:    false,
 					Field: &v2.ConnectorAccountCreationSchema_Field_StringListField{
 						StringListField: &v2.ConnectorAccountCreationSchema_StringListField{},
 					},
-					Order: 6,
+					Order: 5,
 				},
 			},
 		},

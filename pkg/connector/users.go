@@ -94,7 +94,6 @@ func (o *userBuilder) CreateAccount(
 		return nil, nil, nil, errors.New("missing or invalid email")
 	}
 	username, _ := profile["username"].(string)
-	password, _ := profile["password"].(string)
 
 	var roles []string
 	if r, ok := profile["roles"].([]interface{}); ok {
@@ -119,13 +118,9 @@ func (o *userBuilder) CreateAccount(
 		}
 	}
 
-	if password == "" {
-		// generate if not provided
-		var err error
-		password, err = generateCredentials(credentialOptions)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+	password, err := generateCredentials(credentialOptions)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	if len(roles) == 0 {
@@ -156,13 +151,11 @@ func (o *userBuilder) CreateAccount(
 	resp := &v2.CreateAccountResponse_SuccessResult{Resource: res, IsCreateAccountResult: true}
 
 	var plaintext []*v2.PlaintextData
-	if password == "" {
-		plaintext = []*v2.PlaintextData{{
-			Name:        "password",
-			Description: "Generated password for the new user",
-			Bytes:       []byte(password),
-		}}
-	}
+	plaintext = []*v2.PlaintextData{{
+		Name:        "password",
+		Description: "Generated password for the new user",
+		Bytes:       []byte(password),
+	}}
 
 	return resp, plaintext, annotations, nil
 }
