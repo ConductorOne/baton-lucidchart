@@ -93,10 +93,7 @@ func (o *userBuilder) CreateAccount(
 	if !ok {
 		return nil, nil, nil, errors.New("missing or invalid email")
 	}
-	username, ok := profile["username"].(string)
-	if !ok {
-		return nil, nil, nil, errors.New("missing or invalid username")
-	}
+	username, _ := profile["username"].(string)
 
 	var roles []string
 	if r, ok := profile["roles"].([]interface{}); ok {
