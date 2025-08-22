@@ -39,6 +39,10 @@ While developing the connector, please fill out this form. This information is n
 
     OAuth 2: https://developer.lucid.co/docs/oauth-20-client-creation 
 
+    For creating Users: https://lucid.readme.io/reference/createuser
+    Use of this endpoint can only be authorized by administrators on accounts with Enterprise licenses.
+    OAuth 2.0 Account Token Scopes: account.user
+
    * Does the credential need any specific scopes or permissions? If so, list them here. 
 
         Documents - Edit
