@@ -93,7 +93,10 @@ func (o *userBuilder) CreateAccount(
 	if !ok {
 		return nil, nil, nil, errors.New("missing or invalid email")
 	}
-	username, _ := profile["username"].(string)
+	username, ok := profile["username"].(string)
+	if !ok {
+		return nil, nil, nil, errors.New("missing or invalid username")
+	}
 
 	var roles []string
 	if r, ok := profile["roles"].([]interface{}); ok {
@@ -150,8 +153,7 @@ func (o *userBuilder) CreateAccount(
 
 	resp := &v2.CreateAccountResponse_SuccessResult{Resource: res, IsCreateAccountResult: true}
 
-	var plaintext []*v2.PlaintextData
-	plaintext = []*v2.PlaintextData{{
+	plaintext := []*v2.PlaintextData{{
 		Name:        "password",
 		Description: "Generated password for the new user",
 		Bytes:       []byte(password),
