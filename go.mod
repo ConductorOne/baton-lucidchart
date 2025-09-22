@@ -3,7 +3,7 @@ module github.com/conductorone/baton-lucidchart
 go 1.25
 
 require (
-	github.com/conductorone/baton-sdk v0.4.1
+	github.com/conductorone/baton-sdk v0.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
