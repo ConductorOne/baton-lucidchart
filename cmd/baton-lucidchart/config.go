@@ -30,9 +30,9 @@ var (
 		field.WithRequired(true),
 	)
 
-	IncludeShortcutsField = field.BoolField(
-		"include-shortcuts",
-		field.WithDescription("Include shortcut documents and folders"),
+	ExcludeShortcutsField = field.BoolField(
+		"exclude-shortcuts",
+		field.WithDescription("Exclude shortcut documents and folders"),
 		field.WithDefaultValue(false),
 	)
 
@@ -44,7 +44,7 @@ var (
 		LucidClientIdField,
 		LucidClientSecretField,
 		LucidRefreshTokenField,
-		IncludeShortcutsField,
+		ExcludeShortcutsField,
 	}
 
 	// FieldRelationships defines relationships between the fields listed in

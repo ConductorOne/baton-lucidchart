@@ -26,7 +26,7 @@ const (
 
 type folderBuilder struct {
 	client           *client.LucidchartClient
-	includeShortcuts bool
+	excludeShortcuts bool
 }
 
 func (o *folderBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -61,7 +61,7 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 				continue
 			}
 
-			if item.IsShortcut && !o.includeShortcuts {
+			if item.IsShortcut && o.excludeShortcuts {
 				l.Info("baton-lucidchart: skipping shortcut folder", zap.String("folder_id", item.ID()))
 				continue
 			}
@@ -201,9 +201,9 @@ func folderResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resou
 	)
 }
 
-func newFolderBuilder(client *client.LucidchartClient, includeShortcuts bool) *folderBuilder {
+func newFolderBuilder(client *client.LucidchartClient, excludeShortcuts bool) *folderBuilder {
 	return &folderBuilder{
 		client:           client,
-		includeShortcuts: includeShortcuts,
+		excludeShortcuts: excludeShortcuts,
 	}
 }

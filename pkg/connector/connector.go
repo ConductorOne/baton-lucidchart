@@ -15,15 +15,15 @@ import (
 
 type Connector struct {
 	client           *client.LucidchartClient
-	includeShortcuts bool
+	excludeShortcuts bool
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
 		newUserBuilder(d.client),
-		newFolderBuilder(d.client, d.includeShortcuts),
-		newDocumentBuilder(d.client, d.includeShortcuts),
+		newFolderBuilder(d.client, d.excludeShortcuts),
+		newDocumentBuilder(d.client, d.excludeShortcuts),
 	}
 }
 
@@ -92,7 +92,7 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, includeShortcuts bool) (*Connector, error) {
+func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, excludeShortcuts bool) (*Connector, error) {
 	if apiKey == "" {
 		return nil, errors.New("apiKey is required")
 	}
@@ -108,6 +108,6 @@ func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, inc
 
 	return &Connector{
 		client:           lucidClient,
-		includeShortcuts: includeShortcuts,
+		excludeShortcuts: excludeShortcuts,
 	}, nil
 }

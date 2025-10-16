@@ -28,7 +28,7 @@ const (
 
 type documentBuilder struct {
 	client           *client.LucidchartClient
-	includeShortcuts bool
+	excludeShortcuts bool
 }
 
 func (o *documentBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -68,7 +68,7 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 				continue
 			}
 
-			if item.IsShortcut && !o.includeShortcuts {
+			if item.IsShortcut && o.excludeShortcuts {
 				l.Info("baton-lucidchart: skipping shortcut document", zap.String("document_id", item.ID()))
 				continue
 			}
@@ -203,9 +203,9 @@ func documentResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Res
 	)
 }
 
-func newDocumentBuilder(client *client.LucidchartClient, includeShortcuts bool) *documentBuilder {
+func newDocumentBuilder(client *client.LucidchartClient, excludeShortcuts bool) *documentBuilder {
 	return &documentBuilder{
 		client:           client,
-		includeShortcuts: includeShortcuts,
+		excludeShortcuts: excludeShortcuts,
 	}
 }
