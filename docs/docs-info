@@ -59,7 +59,6 @@ While developing the connector, please fill out this form. This information is n
 
 ## Optional connector flags
 
-* `--include-shortcuts` (boolean, default: `false`)
+* `--exclude-shortcuts` (boolean, default: `false`)
 
-    By default the connector **skips documents and folders that are shortcuts** (`isShortcut=true`) because they do not grant effective permissions and typically return 403/404 errors from the API.
-    If you prefer to synchronise those shortcuts as well (for example, to get a full inventory), run the connector with the flag `--include-shortcuts` or set the configuration parameter `include-shortcuts: true` in the connector definition.
+    By default, the connector **also synchronizes documents and folders that are shortcuts** (`isShortcut=true`). If you prefer to skip them (because they don't grant effective permissions or might return 403/404 errors from the API), run the connector with the `--exclude-shortcuts` flag or set the configuration parameter `exclude-shortcuts: true` in the connector definition.
