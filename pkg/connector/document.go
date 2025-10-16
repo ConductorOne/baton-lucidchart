@@ -68,7 +68,7 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 				continue
 			}
 
-			if item.IsShortcut {
+			if item.IsShortcut && !o.includeShortcuts {
 				l.Info("baton-lucidchart: skipping shortcut document", zap.String("document_id", item.ID()))
 				continue
 			}

@@ -61,7 +61,7 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 				continue
 			}
 
-			if item.IsShortcut {
+			if item.IsShortcut && !o.includeShortcuts {
 				l.Info("baton-lucidchart: skipping shortcut folder", zap.String("folder_id", item.ID()))
 				continue
 			}
