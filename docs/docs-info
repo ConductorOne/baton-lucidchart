@@ -56,3 +56,10 @@ While developing the connector, please fill out this form. This information is n
    * What level of access or permissions does the user need in order to create the credentials? (For example, must be a super administrator, must have access to the admin console, etc.)  
 
         The user must have a "Team Admin" role or higher in Lucidchart to access the developer portal and manage API or OAuth keys.
+
+## Optional connector flags
+
+* `--include-shortcuts` (boolean, default: `false`)
+
+    By default the connector **skips documents and folders that are shortcuts** (`isShortcut=true`) because they do not grant effective permissions and typically return 403/404 errors from the API.
+    If you prefer to synchronise those shortcuts as well (for example, to get a full inventory), run the connector with the flag `--include-shortcuts` or set the configuration parameter `include-shortcuts: true` in the connector definition.

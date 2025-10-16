@@ -26,7 +26,8 @@ baton-lucidchart \
     --lucid-client-id="" \
     --lucid-client-secret="" \
     --lucid-refresh-token="" \
-    --lucid-api-key=""
+    --lucid-api-key="" \
+    --include-shortcuts # optional – include shortcut documents and folders
 ```
 
 ## brew
@@ -101,6 +102,7 @@ Flags:
       --otel-collector-endpoint string                   The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided) ($BATON_OTEL_COLLECTOR_ENDPOINT)
   -p, --provisioning                                     This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
       --skip-full-sync                                   This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --include-shortcuts                                   Include shortcut documents and folders (isShortcut=true) in the sync ($BATON_INCLUDE_SHORTCUTS)
       --sync-resources strings                           The resource IDs to sync ($BATON_SYNC_RESOURCES)
       --ticketing                                        This must be set to enable ticketing support ($BATON_TICKETING)
   -v, --version                                          version for baton-lucidchart

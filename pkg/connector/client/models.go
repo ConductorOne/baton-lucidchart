@@ -25,11 +25,11 @@ type Folder struct {
 }
 
 type FolderContent struct {
-	Id       interface{} `json:"id"`
-	Type     string      `json:"type"`
-	Name     string      `json:"name"`
-	Shortcut bool        `json:"shortcut"`
-	Product  string      `json:"product"`
+	Id         interface{} `json:"id"`
+	Type       string      `json:"type"`
+	Name       string      `json:"name"`
+	IsShortcut bool        `json:"isShortcut"`
+	Product    string      `json:"product"`
 }
 
 func (f *FolderContent) ID() string {
