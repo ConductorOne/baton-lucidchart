@@ -79,8 +79,8 @@ jobs:
       #     PGPASSWORD: secretpassword
       - name: Build baton-lucidchart
         run: go build ./cmd/baton-lucidchart
-      - name: Run baton-lucidchart
-        run: ./baton-lucidchart
+      - name: Run baton-lucidchart (exclude shortcuts)
+        run: ./baton-lucidchart --exclude-shortcuts
 
       - name: Install baton
         run: ./scripts/get-baton.sh && mv baton /usr/local/bin
