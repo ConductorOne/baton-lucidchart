@@ -25,7 +25,8 @@ const (
 )
 
 type folderBuilder struct {
-	client *client.LucidchartClient
+	client           *client.LucidchartClient
+	excludeShortcuts bool
 }
 
 func (o *folderBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -54,9 +55,22 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 			return nil, "", nil, err
 		}
 
-		innerFolders, err := folderResources(folderContent, parentResourceID)
-		if err != nil {
-			return nil, "", nil, err
+		var innerFolders []*v2.Resource
+		for _, item := range folderContent {
+			if item.Type != "folder" {
+				continue
+			}
+
+			if item.IsShortcut && o.excludeShortcuts {
+				l.Info("baton-lucidchart: skipping shortcut folder", zap.String("folder_id", item.ID()))
+				continue
+			}
+
+			newResource, err := folderResource(item.ID(), item.Name, parentResourceID)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			innerFolders = append(innerFolders, newResource)
 		}
 
 		return innerFolders, nextToken, nil, nil
@@ -166,25 +180,6 @@ func (o *folderBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotation
 	return nil, fmt.Errorf("resource type %s is not supported", grant.Principal.Id.ResourceType)
 }
 
-func folderResources(folderContent []client.FolderContent, parentResourceID *v2.ResourceId) ([]*v2.Resource, error) {
-	var resources []*v2.Resource
-
-	for _, folder := range folderContent {
-		if folder.Type != "folder" {
-			continue
-		}
-
-		newResource, err := folderResource(folder.ID(), folder.Name, parentResourceID)
-		if err != nil {
-			return nil, err
-		}
-
-		resources = append(resources, newResource)
-	}
-
-	return resources, nil
-}
-
 func folderResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	resourceOptions := []rs.ResourceOption{
 		rs.WithParentResourceID(parentResourceID),
@@ -206,8 +201,9 @@ func folderResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resou
 	)
 }
 
-func newFolderBuilder(client *client.LucidchartClient) *folderBuilder {
+func newFolderBuilder(client *client.LucidchartClient, excludeShortcuts bool) *folderBuilder {
 	return &folderBuilder{
-		client: client,
+		client:           client,
+		excludeShortcuts: excludeShortcuts,
 	}
 }

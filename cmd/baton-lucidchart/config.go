@@ -30,6 +30,12 @@ var (
 		field.WithRequired(true),
 	)
 
+	ExcludeShortcutsField = field.BoolField(
+		"exclude-shortcuts",
+		field.WithDescription("Exclude shortcut documents and folders"),
+		field.WithDefaultValue(false),
+	)
+
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
@@ -38,6 +44,7 @@ var (
 		LucidClientIdField,
 		LucidClientSecretField,
 		LucidRefreshTokenField,
+		ExcludeShortcutsField,
 	}
 
 	// FieldRelationships defines relationships between the fields listed in

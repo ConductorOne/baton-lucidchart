@@ -27,7 +27,8 @@ const (
 )
 
 type documentBuilder struct {
-	client *client.LucidchartClient
+	client           *client.LucidchartClient
+	excludeShortcuts bool
 }
 
 func (o *documentBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -43,6 +44,7 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 	}
 
 	if parentResourceID != nil {
+		l.Info("baton-lucidchart: listing documents for parent", zap.String("parent_id", parentResourceID.Resource))
 		var folderContent []client.FolderContent
 		var nextToken string
 		var err error
@@ -58,13 +60,29 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 				return nil, "", nil, err
 			}
 		}
+		l.Info("baton-lucidchart: folder content", zap.Any("content", folderContent))
 
-		innerDocuments, err := documentResources(folderContent, parentResourceID)
-		if err != nil {
-			return nil, "", nil, err
+		var resources []*v2.Resource
+		for _, item := range folderContent {
+			if item.Type != "document" {
+				continue
+			}
+
+			if item.IsShortcut && o.excludeShortcuts {
+				l.Info("baton-lucidchart: skipping shortcut document", zap.String("document_id", item.ID()))
+				continue
+			}
+
+			newRes, err := documentResource(item.ID(), item.Name, parentResourceID)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			resources = append(resources, newRes)
 		}
 
-		return innerDocuments, nextToken, nil, nil
+		l.Info("baton-lucidchart: found documents in folder", zap.Int("count", len(resources)))
+
+		return resources, nextToken, nil, nil
 	}
 
 	l.Error("invalid parentResourceID", zap.Any("parentResourceID", parentResourceID))
@@ -172,25 +190,6 @@ func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 	return nil, fmt.Errorf("resource type %s is not supported", grant.Principal.Id.ResourceType)
 }
 
-func documentResources(folderContent []client.FolderContent, parentResourceID *v2.ResourceId) ([]*v2.Resource, error) {
-	var resources []*v2.Resource
-
-	for _, folder := range folderContent {
-		if folder.Type != "document" {
-			continue
-		}
-
-		newResource, err := documentResource(folder.ID(), folder.Name, parentResourceID)
-		if err != nil {
-			return nil, err
-		}
-
-		resources = append(resources, newResource)
-	}
-
-	return resources, nil
-}
-
 func documentResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	resourceOptions := []rs.ResourceOption{
 		rs.WithParentResourceID(parentResourceID),
@@ -204,8 +203,9 @@ func documentResource(id, name string, parentResourceID *v2.ResourceId) (*v2.Res
 	)
 }
 
-func newDocumentBuilder(client *client.LucidchartClient) *documentBuilder {
+func newDocumentBuilder(client *client.LucidchartClient, excludeShortcuts bool) *documentBuilder {
 	return &documentBuilder{
-		client: client,
+		client:           client,
+		excludeShortcuts: excludeShortcuts,
 	}
 }
