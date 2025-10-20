@@ -39,12 +39,12 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 	l := ctxzap.Extract(ctx)
 
 	if parentResourceID == nil && pToken.Token == "" {
-		l.Info("baton-lucidchart: ignoring first List call for root folder, only uses parentResourceID")
+		l.Debug("baton-lucidchart: ignoring first List call for root folder, only uses parentResourceID")
 		return nil, "", nil, nil
 	}
 
 	if parentResourceID != nil {
-		l.Info("baton-lucidchart: listing documents for parent", zap.String("parent_id", parentResourceID.Resource))
+		l.Debug("baton-lucidchart: listing documents for parent", zap.String("parent_id", parentResourceID.Resource))
 		var folderContent []client.FolderContent
 		var nextToken string
 		var err error
@@ -60,7 +60,6 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 				return nil, "", nil, err
 			}
 		}
-		l.Info("baton-lucidchart: folder content", zap.Any("content", folderContent))
 
 		var resources []*v2.Resource
 		for _, item := range folderContent {
@@ -69,7 +68,7 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 			}
 
 			if item.IsShortcut && o.excludeShortcuts {
-				l.Info("baton-lucidchart: skipping shortcut document", zap.String("document_id", item.ID()))
+				l.Debug("baton-lucidchart: skipping shortcut document", zap.String("document_id", item.ID()))
 				continue
 			}
 
@@ -79,8 +78,6 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 			}
 			resources = append(resources, newRes)
 		}
-
-		l.Info("baton-lucidchart: found documents in folder", zap.Int("count", len(resources)))
 
 		return resources, nextToken, nil, nil
 	}
