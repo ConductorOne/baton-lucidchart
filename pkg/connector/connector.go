@@ -92,14 +92,37 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, excludeShortcuts bool) (*Connector, error) {
+func New(ctx context.Context, apiKey string, clientID string, clientSecret string, refreshToken string, excludeShortcuts bool) (*Connector, error) {
 	if apiKey == "" {
 		return nil, errors.New("apiKey is required")
 	}
 
-	if tokenSource == nil {
-		return nil, errors.New("tokenSource is required")
+	if clientID == "" {
+		return nil, errors.New("clientID is required")
 	}
+
+	if clientSecret == "" {
+		return nil, errors.New("clientSecret is required")
+	}
+
+	if refreshToken == "" {
+		return nil, errors.New("refreshToken is required")
+	}
+
+	// Set up OAuth2 config
+	oauthConfig := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: "https://api.lucid.co/oauth2/token",
+		},
+	}
+
+	// Create token source from refresh token
+	token := &oauth2.Token{
+		RefreshToken: refreshToken,
+	}
+	tokenSource := oauthConfig.TokenSource(ctx, token)
 
 	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource)
 	if err != nil {

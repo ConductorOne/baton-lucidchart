@@ -1,6 +1,7 @@
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
 BUILD_DIR = dist/${GOOS}_${GOARCH}
+GENERATED_CONF = pkg/config/conf.gen.go
 
 ifeq ($(GOOS),windows)
 OUTPUT_PATH = ${BUILD_DIR}/baton-lucidchart.exe
@@ -9,8 +10,15 @@ OUTPUT_PATH = ${BUILD_DIR}/baton-lucidchart
 endif
 
 .PHONY: build
-build:
+build: $(GENERATED_CONF)
 	go build -o ${OUTPUT_PATH} ./cmd/baton-lucidchart
+
+$(GENERATED_CONF): pkg/config/config.go go.mod
+	go generate ./pkg/config
+
+.PHONY: generate
+generate:
+	go generate ./pkg/config
 
 .PHONY: update-deps
 update-deps:
@@ -18,8 +26,8 @@ update-deps:
 	go mod tidy -v
 	go mod vendor
 
-.PHONY: add-dep
-add-dep:
+.PHONY: add-deps
+add-deps:
 	go mod tidy -v
 	go mod vendor
 
