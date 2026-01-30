@@ -9,30 +9,38 @@ import (
 var (
 	LucidApiKeyField = field.StringField(
 		"lucid-api-key",
+		field.WithDisplayName("Lucidchart API Key"),
 		field.WithRequired(true),
 		field.WithDescription("The API key for the Lucidchart API."),
+		field.WithIsSecret(true),
 	)
 
 	LucidClientIdField = field.StringField(
 		"lucid-client-id",
+		field.WithDisplayName("Lucidchart Client ID"),
 		field.WithRequired(true),
 		field.WithDescription("The OAuth2 client ID for the Lucidchart API."),
 	)
 
 	LucidClientSecretField = field.StringField(
 		"lucid-client-secret",
+		field.WithDisplayName("Lucidchart Client Secret"),
 		field.WithRequired(true),
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
+		field.WithIsSecret(true),
 	)
 
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
+		field.WithDisplayName("Lucidchart Refresh Token"),
 		field.WithRequired(true),
 		field.WithDescription("The OAuth2 refresh token for the Lucidchart API."),
+		field.WithIsSecret(true),
 	)
 
 	ExcludeShortcutsField = field.BoolField(
 		"exclude-shortcuts",
+		field.WithDisplayName("Exclude Shortcuts"),
 		field.WithDefaultValue(false),
 		field.WithDescription("Exclude shortcut documents and folders"),
 	)
@@ -51,10 +59,13 @@ var (
 	FieldRelationships = []field.SchemaFieldRelationship{}
 
 	// Config is the configuration schema for the connector.
-	Config = field.Configuration{
-		Fields:      ConfigurationFields,
-		Constraints: FieldRelationships,
-	}
+	Config = field.NewConfiguration(
+		ConfigurationFields,
+		field.WithConstraints(FieldRelationships...),
+		field.WithConnectorDisplayName("Lucidchart"),
+		field.WithHelpUrl("/docs/baton/lucidchart"),
+		field.WithIconUrl("/static/app-icons/lucidchart.svg"),
+	)
 )
 
 // ValidateConfig is run after the configuration is loaded, and should return an
