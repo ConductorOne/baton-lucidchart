@@ -67,11 +67,3 @@ var (
 		field.WithIconUrl("/static/app-icons/lucidchart.svg"),
 	)
 )
-
-// ValidateConfig is run after the configuration is loaded, and should return an
-// error if it isn't valid. Implementing this function is optional, it only
-// needs to perform extra validations that cannot be encoded with configuration
-// parameters.
-func ValidateConfig(c *Lucidchart) error {
-	return nil
-}

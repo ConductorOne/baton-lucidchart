@@ -41,9 +41,6 @@ func main() {
 
 func getConnector(ctx context.Context, lc *cfg.Lucidchart) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
-	if err := cfg.ValidateConfig(lc); err != nil {
-		return nil, err
-	}
 
 	cb, err := connector.New(
 		ctx,
