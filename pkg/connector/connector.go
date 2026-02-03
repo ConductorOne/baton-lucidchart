@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io"
 
+	"github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"golang.org/x/oauth2"
 )
@@ -19,8 +21,8 @@ type Connector struct {
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client),
 		newFolderBuilder(d.client, d.excludeShortcuts),
 		newDocumentBuilder(d.client, d.excludeShortcuts),
@@ -92,27 +94,27 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string, clientID string, clientSecret string, refreshToken string, excludeShortcuts bool) (*Connector, error) {
-	if apiKey == "" {
-		return nil, errors.New("apiKey is required")
+func New(ctx context.Context, cfg *config.Lucidchart, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
+	if cfg.LucidApiKey == "" {
+		return nil, nil, errors.New("apiKey is required")
 	}
 
-	if clientID == "" {
-		return nil, errors.New("clientID is required")
+	if cfg.LucidClientId == "" {
+		return nil, nil, errors.New("clientID is required")
 	}
 
-	if clientSecret == "" {
-		return nil, errors.New("clientSecret is required")
+	if cfg.LucidClientSecret == "" {
+		return nil, nil, errors.New("clientSecret is required")
 	}
 
-	if refreshToken == "" {
-		return nil, errors.New("refreshToken is required")
+	if cfg.LucidRefreshToken == "" {
+		return nil, nil, errors.New("refreshToken is required")
 	}
 
 	// Set up OAuth2 config
 	oauthConfig := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		ClientID:     cfg.LucidClientId,
+		ClientSecret: cfg.LucidClientSecret,
 		Endpoint: oauth2.Endpoint{
 			TokenURL: "https://api.lucid.co/oauth2/token",
 		},
@@ -120,17 +122,19 @@ func New(ctx context.Context, apiKey string, clientID string, clientSecret strin
 
 	// Create token source from refresh token
 	token := &oauth2.Token{
-		RefreshToken: refreshToken,
+		RefreshToken: cfg.LucidRefreshToken,
 	}
 	tokenSource := oauthConfig.TokenSource(ctx, token)
 
-	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource)
+	lucidClient, err := client.NewLucidchartClient(ctx, cfg.LucidApiKey, tokenSource)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &Connector{
+	connector := &Connector{
 		client:           lucidClient,
-		excludeShortcuts: excludeShortcuts,
-	}, nil
+		excludeShortcuts: cfg.ExcludeShortcuts,
+	}
+
+	return connector, nil, nil
 }
