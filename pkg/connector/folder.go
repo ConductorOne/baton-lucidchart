@@ -10,8 +10,6 @@ import (
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -33,26 +31,26 @@ func (o *folderBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 	return folderResourceType
 }
 
-func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 
 	// Root folder
-	if parentResourceID == nil && pToken.Token == "" {
+	if parentResourceID == nil && opts.PageToken.Token == "" {
 		root, err := folderResource("root", "root", nil)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		resources := []*v2.Resource{root}
 
-		return resources, "", nil, err
+		return resources, &rs.SyncOpResults{}, err
 	}
 
 	// Child folders
 	if parentResourceID != nil {
-		folderContent, nextToken, err := o.client.FolderContent(ctx, parentResourceID.Resource, pToken.Token)
+		folderContent, nextToken, err := o.client.FolderContent(ctx, parentResourceID.Resource, opts.PageToken.Token)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		var innerFolders []*v2.Resource
@@ -68,19 +66,19 @@ func (o *folderBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 
 			newResource, err := folderResource(item.ID(), item.Name, parentResourceID)
 			if err != nil {
-				return nil, "", nil, err
+				return nil, nil, err
 			}
 			innerFolders = append(innerFolders, newResource)
 		}
 
-		return innerFolders, nextToken, nil, nil
+		return innerFolders, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 	}
 
 	l.Error("invalid parentResourceID", zap.Any("parentResourceID", parentResourceID))
 
-	return nil, "", nil, nil
+	return nil, &rs.SyncOpResults{}, nil
 }
-func (o *folderBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (o *folderBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 
 	for _, role := range client.UserFolderRoles {
@@ -92,17 +90,17 @@ func (o *folderBuilder) Entitlements(_ context.Context, resource *v2.Resource, _
 		rv = append(rv, entitlement.NewPermissionEntitlement(resource, folderHasUserAccessEntitlement+role, assigmentOptions...))
 	}
 
-	return rv, "", nil, nil
+	return rv, &rs.SyncOpResults{}, nil
 }
 
-func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	if resource.Id.Resource == "root" {
-		return nil, "", nil, nil
+		return nil, &rs.SyncOpResults{}, nil
 	}
 
-	collaborators, nextToken, err := o.client.ListFolderUserCollaborators(ctx, resource.Id.Resource, pToken.Token)
+	collaborators, nextToken, err := o.client.ListFolderUserCollaborators(ctx, resource.Id.Resource, opts.PageToken.Token)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var grants []*v2.Grant
@@ -110,7 +108,7 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, pToke
 	for _, collaborator := range collaborators {
 		userID, err := rs.NewResourceID(userResourceType, collaborator.UserId)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		metadata := map[string]interface{}{
@@ -123,7 +121,7 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, pToke
 		grants = append(grants, newGrant)
 	}
 
-	return grants, nextToken, nil, nil
+	return grants, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 }
 
 func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
