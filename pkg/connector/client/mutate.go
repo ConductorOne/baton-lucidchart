@@ -17,7 +17,7 @@ func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, fol
 		Role: role,
 	}
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodPut, path, body, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodPut, path, body, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, fol
 func (c *LucidchartClient) DeleteFolderUserCollaborator(ctx context.Context, folderId, userId string) error {
 	path := fmt.Sprintf(DeleteFolderUserCollaboratorPath, folderId, userId)
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, d
 		Role: role,
 	}
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodPut, path, body, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodPut, path, body, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, d
 func (c *LucidchartClient) DeleteDocumentUserCollaborator(ctx context.Context, documentId, userId string) error {
 	path := fmt.Sprintf(DeleteDocumentUserCollaboratorPath, documentId, userId)
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return err
 	}

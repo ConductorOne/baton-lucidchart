@@ -26,7 +26,7 @@ func (c *LucidchartClient) CreateUser(ctx context.Context, payload *UserCreatePa
 	}
 
 	// Lucid recommends using the normal host for account operations.
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodPost, "/users", payload, LucidAuthTypeOAuth2)
+	req, err := c.newRequest(ctx, http.MethodPost, "/users", payload, LucidAuthTypeOAuth2)
 	if err != nil {
 		return nil, nil, err
 	}

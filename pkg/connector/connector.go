@@ -92,7 +92,7 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, excludeShortcuts bool) (*Connector, error) {
+func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, excludeShortcuts bool, baseURL string) (*Connector, error) {
 	if apiKey == "" {
 		return nil, errors.New("apiKey is required")
 	}
@@ -101,7 +101,7 @@ func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, exc
 		return nil, errors.New("tokenSource is required")
 	}
 
-	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource)
+	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource, baseURL)
 	if err != nil {
 		return nil, err
 	}

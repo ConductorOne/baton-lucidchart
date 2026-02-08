@@ -36,9 +36,10 @@ type LucidchartClient struct {
 	client      *uhttp.BaseHttpClient
 	tokenSource oauth2.TokenSource
 	apiKey      string
+	baseURL     string
 }
 
-func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource) (*LucidchartClient, error) {
+func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, baseURL string) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -49,22 +50,26 @@ func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.
 		return nil, err
 	}
 
+	if baseURL == "" {
+		baseURL = string(LucidchartApiUrl)
+	}
+
 	return &LucidchartClient{
 		client:      uhttpClient,
 		tokenSource: tokenSource,
 		apiKey:      apiKey,
+		baseURL:     baseURL,
 	}, nil
 }
 
 func (c *LucidchartClient) newRequest(
 	ctx context.Context,
-	clientUrl ClientUrl,
 	method string,
 	path string,
 	body interface{},
 	authType LucidAuthType,
 ) (*http.Request, error) {
-	urlAddress, err := url.Parse(string(clientUrl))
+	urlAddress, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, err
 	}
