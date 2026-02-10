@@ -2,7 +2,7 @@
 
 #
 
-`baton-lucidchart` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-lucidchart.svg)](https://pkg.go.dev/github.com/conductorone/baton-lucidchart) ![main ci](https://github.com/conductorone/baton-lucidchart/actions/workflows/main.yaml/badge.svg)
+`baton-lucidchart` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-lucidchart.svg)](https://pkg.go.dev/github.com/conductorone/baton-lucidchart) ![ci](https://github.com/conductorone/baton-lucidchart/actions/workflows/ci.yaml/badge.svg) ![verify](https://github.com/conductorone/baton-lucidchart/actions/workflows/verify.yaml/badge.svg)
 
 `baton-lucidchart` is a connector for built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
 
