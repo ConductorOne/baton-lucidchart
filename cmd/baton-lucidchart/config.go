@@ -39,6 +39,7 @@ var (
 	BaseURLField = field.StringField(
 		"base-url",
 		field.WithDescription("Override the Lucidchart API URL (for testing)"),
+		field.WithHidden(true),
 	)
 
 	// ConfigurationFields defines the external configuration required for the
