@@ -15,7 +15,7 @@ type UserCreatePayload struct {
 	LastName  string   `json:"lastName"`
 	Email     string   `json:"email"`
 	Username  string   `json:"username,omitempty"`
-	Password  string   `json:"password,omitempty"` //nolint:gosec // G117: Lucidchart API request field, not a hardcoded credential
+	Password  string   `json:"password,omitempty"`
 	Roles     []string `json:"roles,omitempty"`
 }
 
