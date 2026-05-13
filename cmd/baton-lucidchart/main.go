@@ -60,7 +60,7 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	oauthConfig := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
+		Endpoint: oauth2.Endpoint{ //nolint:gosec // G101: OAuth2 token endpoint URL, not a credential
 			TokenURL: "https://api.lucid.co/oauth2/token",
 		},
 	}
