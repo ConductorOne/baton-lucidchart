@@ -22,7 +22,7 @@ var (
 func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]User, string, error) {
 	var response []User
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, GetUsersPath, nil, LucidAuthTypeOAuth2)
+	req, err := c.newRequest(ctx, http.MethodGet, GetUsersPath, nil, LucidAuthTypeOAuth2)
 	if err != nil {
 		return nil, "", err
 	}
@@ -40,7 +40,7 @@ func (c *LucidchartClient) ListUser(ctx context.Context, pageToken string) ([]Us
 func (c *LucidchartClient) RootFolderContent(ctx context.Context, pageToken string) ([]FolderContent, string, error) {
 	var response []FolderContent
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, RootFolderContentPath, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodGet, RootFolderContentPath, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, "", err
 	}
@@ -60,7 +60,7 @@ func (c *LucidchartClient) FolderContent(ctx context.Context, folderId string, p
 
 	path := fmt.Sprintf(FolderContentPath, folderId)
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, "", err
 	}
@@ -80,7 +80,7 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 
 	path := fmt.Sprintf(ListFolderUserCollaboratorsPath, folderId)
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, "", err
 	}
@@ -100,7 +100,7 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 
 	path := fmt.Sprintf(ListDocumentUserCollaboratorsPath, documentId)
 
-	req, err := c.newRequest(ctx, LucidchartApiUrl, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
 		return nil, "", err
 	}

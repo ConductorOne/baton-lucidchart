@@ -54,12 +54,13 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	clientSecret := v.GetString(LucidClientSecretField.FieldName)
 	refreshToken := v.GetString(LucidRefreshTokenField.FieldName)
 	excludeShortcuts := v.GetBool(ExcludeShortcutsField.FieldName)
+	baseURL := v.GetString(BaseURLField.FieldName)
 
 	// Set up OAuth2 config
 	oauthConfig := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
+		Endpoint: oauth2.Endpoint{ //nolint:gosec // G101: OAuth2 token endpoint URL, not a credential
 			TokenURL: "https://api.lucid.co/oauth2/token",
 		},
 	}
@@ -70,7 +71,7 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	}
 	tokenSource := oauthConfig.TokenSource(ctx, token)
 
-	cb, err := connector.New(ctx, apiKey, tokenSource, excludeShortcuts)
+	cb, err := connector.New(ctx, apiKey, tokenSource, excludeShortcuts, baseURL)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

@@ -19,7 +19,7 @@ func TestExtractPageToken(t *testing.T) {
 			ExpectedToken: "",
 			ExpectedError: true,
 		},
-		{
+		{ //nolint:gosec // G101: test data containing fake pageToken, not a real credential
 			Name:          "link with token",
 			Link:          "<https://api.lucid.co/users?pageSize=1&pageToken=eyJvIjoiMSJ9>; rel=\"next\"",
 			ExpectedToken: "eyJvIjoiMSJ9",
