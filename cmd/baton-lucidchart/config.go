@@ -10,6 +10,7 @@ var (
 		"lucid-api-key",
 		field.WithDescription("The API key for the Lucidchart API."),
 		field.WithRequired(true),
+		field.WithIsSecret(true),
 	)
 
 	LucidClientIdField = field.StringField(
@@ -22,12 +23,14 @@ var (
 		"lucid-client-secret",
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
 		field.WithRequired(true),
+		field.WithIsSecret(true),
 	)
 
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
 		field.WithDescription("The OAuth2 refresh token for the Lucidchart API."),
 		field.WithRequired(true),
+		field.WithIsSecret(true),
 	)
 
 	ExcludeShortcutsField = field.BoolField(
