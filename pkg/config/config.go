@@ -11,7 +11,6 @@ var (
 		field.WithDescription("The API key for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
-		field.WithIsSecret(true),
 	)
 
 	LucidClientIdField = field.StringField(
