@@ -6,15 +6,13 @@ import (
 	"fmt"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
-	"github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type userBuilder struct {
@@ -27,36 +25,37 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 
 // List returns all the users from the database as resource objects.
 // Users include a UserTrait because they are the 'shape' of a standard user.
-func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
+	pToken := &opts.PageToken
 
-	user, nextToken, err := o.client.ListUser(ctx, pToken.Token)
+	users, nextToken, err := o.client.ListUser(ctx, pToken.Token)
 	if err != nil {
 		l.Error("Error getting users", zap.Error(err))
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var resources []*v2.Resource
-	for _, u := range user {
+	for _, u := range users {
 		user, err := userResource(u)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		resources = append(resources, user)
 	}
 
-	return resources, nextToken, nil, nil
+	return resources, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 }
 
 // Entitlements always returns an empty slice for users.
-func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 // Grants always returns an empty slice for users since they don't have any entitlements.
-func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 func (b *userBuilder) CreateAccountCapabilityDetails(_ context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
@@ -137,7 +136,7 @@ func (o *userBuilder) CreateAccount(
 	}
 
 	// Create user via REST client
-	created, annotations, err := o.client.CreateUser(ctx, payload)
+	created, annos, err := o.client.CreateUser(ctx, payload)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -156,7 +155,7 @@ func (o *userBuilder) CreateAccount(
 		Bytes:       []byte(password),
 	}}
 
-	return resp, plaintext, annotations, nil
+	return resp, plaintext, annos, nil
 }
 
 func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, error) {
@@ -186,14 +185,14 @@ func userResource(user client.User) (*v2.Resource, error) {
 		"usernames":  user.Usernames,
 	}
 
-	userTraitOptions := []resource.UserTraitOption{
-		resource.WithUserProfile(profile),
-		resource.WithEmail(user.Email, true),
-		resource.WithStatus(status),
-		resource.WithUserLogin(user.Email),
+	userTraitOptions := []rs.UserTraitOption{
+		rs.WithUserProfile(profile),
+		rs.WithEmail(user.Email, true),
+		rs.WithStatus(status),
+		rs.WithUserLogin(user.Email),
 	}
 
-	newUserResource, err := resource.NewUserResource(
+	newUserResource, err := rs.NewUserResource(
 		user.Email,
 		userResourceType,
 		user.UserId,

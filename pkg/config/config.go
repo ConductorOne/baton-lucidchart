@@ -1,26 +1,29 @@
-package main
+package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/spf13/viper"
 )
 
 var (
 	LucidApiKeyField = field.StringField(
 		"lucid-api-key",
+		field.WithDisplayName("API Key"),
 		field.WithDescription("The API key for the Lucidchart API."),
 		field.WithRequired(true),
+		field.WithIsSecret(true),
 		field.WithIsSecret(true),
 	)
 
 	LucidClientIdField = field.StringField(
 		"lucid-client-id",
+		field.WithDisplayName("Client ID"),
 		field.WithDescription("The OAuth2 client ID for the Lucidchart API."),
 		field.WithRequired(true),
 	)
 
 	LucidClientSecretField = field.StringField(
 		"lucid-client-secret",
+		field.WithDisplayName("Client Secret"),
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
@@ -28,6 +31,7 @@ var (
 
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
+		field.WithDisplayName("Refresh Token"),
 		field.WithDescription("The OAuth2 refresh token for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
@@ -46,9 +50,6 @@ var (
 		field.WithExportTarget(field.ExportTargetCLIOnly),
 	)
 
-	// ConfigurationFields defines the external configuration required for the
-	// connector to run. Note: these fields can be marked as optional or
-	// required.
 	ConfigurationFields = []field.SchemaField{
 		LucidApiKeyField,
 		LucidClientIdField,
@@ -58,17 +59,14 @@ var (
 		BaseURLField,
 	}
 
-	// FieldRelationships defines relationships between the fields listed in
-	// ConfigurationFields that can be automatically validated. For example, a
-	// username and password can be required together, or an access token can be
-	// marked as mutually exclusive from the username password pair.
 	FieldRelationships = []field.SchemaFieldRelationship{}
 )
 
-// ValidateConfig is run after the configuration is loaded, and should return an
-// error if it isn't valid. Implementing this function is optional, it only
-// needs to perform extra validations that cannot be encoded with configuration
-// parameters.
-func ValidateConfig(v *viper.Viper) error {
-	return nil
-}
+//go:generate go run ./gen
+var Config = field.NewConfiguration(
+	ConfigurationFields,
+	field.WithConstraints(FieldRelationships...),
+	field.WithConnectorDisplayName("Lucidchart"),
+	field.WithIconUrl("/static/app-icons/lucidchart.svg"),
+	field.WithHelpUrl("/docs/baton/lucidchart"),
+)

@@ -5,10 +5,11 @@ import (
 	"errors"
 	"io"
 
+	cfg "github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"golang.org/x/oauth2"
 )
@@ -18,9 +19,9 @@ type Connector struct {
 	excludeShortcuts bool
 }
 
-// ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+// ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
+func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client),
 		newFolderBuilder(d.client, d.excludeShortcuts),
 		newDocumentBuilder(d.client, d.excludeShortcuts),
@@ -91,23 +92,34 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 	return nil, nil
 }
 
+const lucidTokenURL = "https://api.lucid.co/oauth2/token" //nolint:gosec // not a credential, it's a URL
+
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, excludeShortcuts bool, baseURL string) (*Connector, error) {
-	if apiKey == "" {
-		return nil, errors.New("apiKey is required")
+func New(ctx context.Context, connectorConfig *cfg.Lucidchart, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
+	if connectorConfig.LucidApiKey == "" {
+		return nil, nil, errors.New("lucid-api-key is required")
 	}
 
-	if tokenSource == nil {
-		return nil, errors.New("tokenSource is required")
+	oauthConfig := &oauth2.Config{
+		ClientID:     connectorConfig.LucidClientId,
+		ClientSecret: connectorConfig.LucidClientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL: lucidTokenURL,
+		},
 	}
 
-	lucidClient, err := client.NewLucidchartClient(ctx, apiKey, tokenSource, baseURL)
+	token := &oauth2.Token{
+		RefreshToken: connectorConfig.LucidRefreshToken,
+	}
+	tokenSource := oauthConfig.TokenSource(ctx, token)
+
+	lucidClient, err := client.NewLucidchartClient(ctx, connectorConfig.LucidApiKey, tokenSource)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &Connector{
 		client:           lucidClient,
-		excludeShortcuts: excludeShortcuts,
-	}, nil
+		excludeShortcuts: connectorConfig.ExcludeShortcuts,
+	}, nil, nil
 }
