@@ -9,6 +9,7 @@ type Lucidchart struct {
 	LucidClientSecret string `mapstructure:"lucid-client-secret"`
 	LucidRefreshToken string `mapstructure:"lucid-refresh-token"`
 	ExcludeShortcuts bool `mapstructure:"exclude-shortcuts"`
+	BaseUrl string `mapstructure:"base-url"`
 }
 
 func (c *Lucidchart) findFieldByTag(tagValue string) (any, bool) {

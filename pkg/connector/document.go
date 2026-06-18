@@ -102,7 +102,7 @@ func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource,
 	return rv, nil, nil
 }
 
-func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 	if resource.Id.Resource == "root" {
 		return nil, nil, nil
@@ -115,9 +115,9 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pTo
 		// Ignore permission denied errors as they indicate no access to collaborators for this document
 		if status.Code(err) == codes.PermissionDenied {
 			l.Debug("baton-lucidchart: permission denied when listing document collaborators", zap.String("document_id", resource.Id.Resource))
-			return nil, "", nil, nil
+			return nil, nil, nil
 		}
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var grants []*v2.Grant

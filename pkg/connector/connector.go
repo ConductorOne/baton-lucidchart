@@ -113,7 +113,7 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, _ *cli.ConnectorO
 	}
 	tokenSource := oauthConfig.TokenSource(ctx, token)
 
-	lucidClient, err := client.NewLucidchartClient(ctx, connectorConfig.LucidApiKey, tokenSource)
+	lucidClient, err := client.NewLucidchartClient(ctx, connectorConfig.LucidApiKey, tokenSource, connectorConfig.BaseUrl)
 	if err != nil {
 		return nil, nil, err
 	}
