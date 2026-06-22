@@ -95,23 +95,29 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 const lucidTokenURL = "https://api.lucid.co/oauth2/token" //nolint:gosec // not a credential, it's a URL
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, connectorConfig *cfg.Lucidchart, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
+func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	if connectorConfig.LucidApiKey == "" {
 		return nil, nil, errors.New("lucid-api-key is required")
 	}
 
-	oauthConfig := &oauth2.Config{
-		ClientID:     connectorConfig.LucidClientId,
-		ClientSecret: connectorConfig.LucidClientSecret,
-		Endpoint: oauth2.Endpoint{
-			TokenURL: lucidTokenURL,
-		},
+	var tokenSource oauth2.TokenSource
+	if connectorConfig.LucidRefreshToken == "" {
+		if opts == nil || opts.TokenSource == nil {
+			return nil, nil, errors.New("lucid-refresh-token is required when no OAuth token source is provided")
+		}
+		tokenSource = opts.TokenSource
+	} else {
+		oauthConfig := &oauth2.Config{
+			ClientID:     connectorConfig.LucidClientId,
+			ClientSecret: connectorConfig.LucidClientSecret,
+			Endpoint: oauth2.Endpoint{
+				TokenURL: lucidTokenURL,
+			},
+		}
+		tokenSource = oauthConfig.TokenSource(ctx, &oauth2.Token{
+			RefreshToken: connectorConfig.LucidRefreshToken,
+		})
 	}
-
-	token := &oauth2.Token{
-		RefreshToken: connectorConfig.LucidRefreshToken,
-	}
-	tokenSource := oauthConfig.TokenSource(ctx, token)
 
 	lucidClient, err := client.NewLucidchartClient(ctx, connectorConfig.LucidApiKey, tokenSource, connectorConfig.BaseUrl)
 	if err != nil {
