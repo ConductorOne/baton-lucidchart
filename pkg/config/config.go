@@ -7,22 +7,28 @@ import (
 var (
 	LucidApiKeyField = field.StringField(
 		"lucid-api-key",
-		field.WithDisplayName("API Key"),
+		field.WithDisplayName("Lucidchart API Key"),
 		field.WithDescription("The API key for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
 	)
 
+	LucidOAuthField = field.Oauth2Field(
+		"oauth2",
+		field.WithDisplayName("Lucidchart OAuth2 Token"),
+		field.WithDescription("The OAuth2 token for the Lucidchart API."),
+	)
+
 	LucidClientIdField = field.StringField(
 		"lucid-client-id",
-		field.WithDisplayName("Client ID"),
+		field.WithDisplayName("Lucidchart Client ID"),
 		field.WithDescription("The OAuth2 client ID for the Lucidchart API."),
 		field.WithRequired(true),
 	)
 
 	LucidClientSecretField = field.StringField(
 		"lucid-client-secret",
-		field.WithDisplayName("Client Secret"),
+		field.WithDisplayName("Lucidchart Client Secret"),
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
@@ -30,14 +36,16 @@ var (
 
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
-		field.WithDisplayName("Refresh Token"),
+		field.WithDisplayName("Lucidchart Refresh Token"),
 		field.WithDescription("The OAuth2 refresh token for the Lucidchart API."),
-		field.WithRequired(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+		field.WithHidden(true),
 		field.WithIsSecret(true),
 	)
 
 	ExcludeShortcutsField = field.BoolField(
 		"exclude-shortcuts",
+		field.WithDisplayName("Exclude Shortcuts"),
 		field.WithDescription("Exclude shortcut documents and folders"),
 		field.WithDefaultValue(false),
 	)
@@ -51,6 +59,7 @@ var (
 
 	ConfigurationFields = []field.SchemaField{
 		LucidApiKeyField,
+		LucidOAuthField,
 		LucidClientIdField,
 		LucidClientSecretField,
 		LucidRefreshTokenField,
