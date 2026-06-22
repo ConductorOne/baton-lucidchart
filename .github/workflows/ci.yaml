@@ -19,12 +19,12 @@ jobs:
       BATON_LUCID_CLIENT_SECRET: ${{ secrets.LUCID_CLIENT_SECRET }}
       BATON_LUCID_REFRESH_TOKEN: ${{ secrets.LUCID_REFRESH_TOKEN }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Checkout code
-        uses: actions/checkout@v4
       - name: Build baton-lucidchart
         run: go build ./cmd/baton-lucidchart
       - name: Run baton-lucidchart (exclude shortcuts)
