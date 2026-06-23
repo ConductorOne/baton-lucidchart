@@ -5,6 +5,7 @@ import "reflect"
 
 type Lucidchart struct {
 	LucidApiKey string `mapstructure:"lucid-api-key"`
+	Oauth2 string `mapstructure:"oauth2"`
 	LucidClientId string `mapstructure:"lucid-client-id"`
 	LucidClientSecret string `mapstructure:"lucid-client-secret"`
 	LucidRefreshToken string `mapstructure:"lucid-refresh-token"`
