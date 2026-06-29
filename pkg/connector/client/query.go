@@ -18,6 +18,9 @@ var (
 
 	UpsertDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
 	DeleteDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
+
+	GetSubscriptionsPath = "/subscriptions"
+	GetLicensesPath      = "/licenses"
 )
 
 // GetUser fetches a single user by their numeric REST user ID via
@@ -118,6 +121,42 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 	path := fmt.Sprintf(ListDocumentUserCollaboratorsPath, documentId)
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+func (c *LucidchartClient) ListSubscriptions(ctx context.Context, pageToken string) ([]Subscription, string, error) {
+	var response []Subscription
+
+	req, err := c.newRequest(ctx, http.MethodGet, GetSubscriptionsPath, nil, LucidAuthTypeOAuth2)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+func (c *LucidchartClient) ListLicenses(ctx context.Context, pageToken string) ([]License, string, error) {
+	var response []License
+
+	req, err := c.newRequest(ctx, http.MethodGet, GetLicensesPath, nil, LucidAuthTypeOAuth2)
 	if err != nil {
 		return nil, "", err
 	}

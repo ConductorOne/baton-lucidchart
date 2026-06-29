@@ -100,3 +100,23 @@ type DocumentShareLink struct {
 	LastModified time.Time `json:"lastModified"`
 	AcceptUrl    string    `json:"acceptUrl"`
 }
+
+type Subscription struct {
+	SubscriptionId string     `json:"subscriptionId"`
+	Product        string     `json:"product"`
+	PlanName       string     `json:"planName"`
+	TotalSeats     int64      `json:"totalSeats"`
+	UsedSeats      int64      `json:"usedSeats"`
+	IsTrial        bool       `json:"isTrial"`
+	StartDate      *time.Time `json:"startDate"`
+	EndDate        *time.Time `json:"endDate"`
+	RenewalDate    *time.Time `json:"renewalDate"`
+}
+
+type License struct {
+	LicenseId      string `json:"licenseId"`
+	SubscriptionId string `json:"subscriptionId"`
+	UserId         int    `json:"userId"`
+	Product        string `json:"product"`
+	Role           string `json:"role"`
+}

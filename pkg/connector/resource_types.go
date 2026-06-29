@@ -20,3 +20,11 @@ var documentResourceType = &v2.ResourceType{
 	Id:          "document",
 	DisplayName: "Document",
 }
+
+var licenseResourceType = &v2.ResourceType{
+	Id:          "license",
+	DisplayName: "License",
+	Traits: []v2.ResourceType_Trait{
+		v2.ResourceType_TRAIT_LICENSE_PROFILE,
+	},
+}
