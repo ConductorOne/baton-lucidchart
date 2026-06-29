@@ -1,34 +1,35 @@
 name: ci
-on: pull_request
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+env:
+  BATON_LOG_LEVEL: debug
+  # Credentials + endpoints for the in-process mock (cmd/test-server). No real
+  # Lucid tenant, OAuth credentials, or rotating refresh token are involved: the
+  # mock serves the OAuth2 token endpoint, the REST API and SCIM. Any non-empty
+  # bearer is accepted. The connector derives the OAuth token URL from BATON_BASE_URL.
+  BATON_LUCID_API_KEY: test-api-key
+  BATON_LUCID_CLIENT_ID: test-client-id
+  BATON_LUCID_CLIENT_SECRET: test-client-secret
+  BATON_LUCID_REFRESH_TOKEN: test-refresh-token
+  BATON_BASE_URL: http://localhost:8080
+  BATON_LUCID_SCIM_TOKEN: test-scim-token
+  BATON_SCIM_BASE_URL: http://localhost:8080/scim/v2
 jobs:
   test:
-    if: false
+    # Exercises a full sync (users + folders + documents) against the in-process
+    # Lucid mock in cmd/test-server, so it needs no real tenant credentials and no
+    # rotating OAuth refresh token.
     runs-on: ubuntu-latest
-    env:
-      BATON_LOG_LEVEL: debug
-      # Add any environment variables needed to run baton-lucidchart
-      # BATON_BASE_URL: 'http://localhost:8080'
-      # BATON_ACCESS_TOKEN: 'secret_token'
-      # The following parameters are passed to grant/revoke commands
-      # Change these to the correct IDs for your test data
-      CONNECTOR_GRANT: 'grant:entitlement:group:1234:member:user:9876'
-      CONNECTOR_ENTITLEMENT: 'entitlement:group:1234:member'
-      CONNECTOR_PRINCIPAL: 'user:9876'
-      CONNECTOR_PRINCIPAL_TYPE: 'user'
-      BATON_LUCID_API_KEY: ${{ secrets.LUCID_API_KEY }}
-      BATON_LUCID_CLIENT_ID: ${{ secrets.LUCID_CLIENT_ID }}
-      BATON_LUCID_CLIENT_SECRET: ${{ secrets.LUCID_CLIENT_SECRET }}
-      BATON_LUCID_REFRESH_TOKEN: ${{ secrets.LUCID_REFRESH_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build baton-lucidchart
-        run: go build ./cmd/baton-lucidchart
-      - name: Run baton-lucidchart (exclude shortcuts)
+      - uses: ./.github/actions/start-test-server
+      - name: Run sync (exclude shortcuts)
         run: ./baton-lucidchart --exclude-shortcuts
-      - name: Install baton
-        run: ./scripts/get-baton.sh && mv baton /usr/local/bin
+      - name: Stop test server
+        if: always()
+        run: pkill -f test-server || true

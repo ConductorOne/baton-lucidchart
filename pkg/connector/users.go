@@ -15,8 +15,46 @@ import (
 	"go.uber.org/zap"
 )
 
+// knownRestRoles is the set of role strings accepted by Lucid's REST
+// POST /v1/users (Create User) endpoint (kebab-case).
+// Source: https://lucid.readme.io/reference/createuser — 11 enum values total;
+// 10 are confirmed (the 11th is behind an interactive expand the page fetcher
+// cannot reach). List sourced from reviewer citation on PR #54.
+var knownRestRoles = []string{
+	"billing-admin", "team-admin", "document-admin", "template-admin",
+	"account-owner", "developer", "enterprise-shield-admin", "group-admin",
+	"organizational-group-admin", "team-manager",
+}
+
+// knownScimRoles is the set of role strings accepted by Lucid's SCIM
+// PATCH /Users/{id} (Modify User) endpoint (PascalCase).
+// Source: https://lucid.readme.io/reference/modifyuserput; the complete list
+// is not publicly enumerated — these 4 are confirmed by reviewer citation on PR #54.
+var knownScimRoles = []string{"BillingAdmin", "TeamAdmin", "DocumentAdmin", "TemplateAdmin"}
+
+func isKnownRestRole(role string) bool {
+	for _, r := range knownRestRoles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+func isKnownScimRole(role string) bool {
+	for _, r := range knownScimRoles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
 type userBuilder struct {
 	client *client.LucidchartClient
+	// contentTransferUserID, when set, receives a deleted user's documents
+	// before the user is removed, so owned content is retained.
+	contentTransferUserID string
 }
 
 func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -103,27 +141,16 @@ func (o *userBuilder) CreateAccount(
 		}
 	}
 
-	// Validate that all roles are valid
-	validRoles := map[string]bool{
-		"billing-admin":  true,
-		"team-admin":     true,
-		"document-admin": true,
-		"template-admin": true,
-	}
-
+	// Validate that all roles are valid for the REST Create User endpoint.
 	for _, role := range roles {
-		if !validRoles[role] {
-			return nil, nil, nil, fmt.Errorf("invalid role '%s'. Valid roles are: billing-admin, team-admin, document-admin, template-admin", role)
+		if !isKnownRestRole(role) {
+			return nil, nil, nil, fmt.Errorf("invalid role '%s'. Valid roles are: %v", role, knownRestRoles)
 		}
 	}
 
 	password, err := generateCredentials(credentialOptions)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-
-	if len(roles) == 0 {
-		roles = []string{"editor"}
 	}
 
 	payload := &client.UserCreatePayload{
@@ -181,7 +208,7 @@ func userResource(user client.User) (*v2.Resource, error) {
 		"account_id": user.AccountId,
 		"email":      user.Email,
 		"name":       user.Name,
-		"user_id":    user.UserId,
+		argUserID:    user.UserId,
 		"usernames":  user.Usernames,
 	}
 
@@ -205,8 +232,43 @@ func userResource(user client.User) (*v2.Resource, error) {
 	return newUserResource, nil
 }
 
-func newUserBuilder(client *client.LucidchartClient) *userBuilder {
+// Delete permanently removes a user via the SCIM DELETE path (the official
+// deprovisioning surface). When a content-transfer user is configured, the
+// deleted user's documents are transferred first so they are retained.
+//
+// Not-found is treated as success: the platform retries failed deletes, and a
+// connector that errored on an already-deleted user would fail every retry.
+func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
+	if !o.client.ScimConfigured() {
+		return nil, fmt.Errorf("baton-lucidchart: delete user: SCIM is not configured (a SCIM bearer token, Enterprise tier, is required for deprovisioning)")
+	}
+
+	userID := resourceID.Resource
+
+	// Precondition: transfer owned content to the configured recipient so it is
+	// retained after the user is deleted. Any failure — including 404 — surfaces
+	// as an error: a failed transfer must not silently lead to content loss.
+	if o.contentTransferUserID != "" {
+		if _, err := o.client.TransferContent(ctx, userID, o.contentTransferUserID); err != nil {
+			return nil, fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
+		}
+	}
+
+	annos, err := o.client.ScimDeleteUser(ctx, userID)
+	if err != nil {
+		if client.IsNotFoundError(err) {
+			// Already deleted is success.
+			return annos, nil
+		}
+		return annos, fmt.Errorf("baton-lucidchart: delete user %s: %w", userID, err)
+	}
+
+	return annos, nil
+}
+
+func newUserBuilder(client *client.LucidchartClient, contentTransferUserID string) *userBuilder {
 	return &userBuilder{
-		client: client,
+		client:                client,
+		contentTransferUserID: contentTransferUserID,
 	}
 }

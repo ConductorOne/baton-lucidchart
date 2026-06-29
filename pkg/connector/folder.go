@@ -117,8 +117,8 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts 
 		}
 
 		metadata := map[string]interface{}{
-			"role":    collaborator.Role,
-			"created": collaborator.Created.String(),
+			metaRole:    collaborator.Role,
+			metaCreated: collaborator.Created.String(),
 		}
 
 		newGrant := grant.NewGrant(resource, folderHasUserAccessEntitlement+collaborator.Role, userID, grant.WithGrantMetadata(metadata))
@@ -152,8 +152,8 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 		}
 
 		metadata := map[string]interface{}{
-			"role":    response.Role,
-			"created": response.Created.String(),
+			metaRole:    response.Role,
+			metaCreated: response.Created.String(),
 		}
 
 		newGrant := grant.NewGrant(resource, folderHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))

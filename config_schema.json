@@ -130,6 +130,19 @@
       "displayName": "Exclude Shortcuts",
       "description": "Exclude shortcut documents and folders",
       "boolField": {}
+    },
+    {
+      "name": "lucid-scim-token",
+      "displayName": "Lucidchart SCIM Token",
+      "description": "The SCIM 2.0 bearer token for user deprovisioning (deactivate/delete). Requires Lucid Enterprise tier. Optional: sync and account creation work without it.",
+      "isSecret": true,
+      "stringField": {}
+    },
+    {
+      "name": "lucid-content-transfer-user-id",
+      "displayName": "Content Transfer User ID",
+      "description": "User ID to transfer owned documents to before deleting a user. When set, a user delete first transfers their content to this user so it is retained.",
+      "stringField": {}
     }
   ],
   "displayName": "Lucidchart",

@@ -1,0 +1,27 @@
+name: Start test server
+description: Build baton-lucidchart and the in-process Lucid mock (REST + SCIM + OAuth), start the mock in the background, and wait for health.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Build baton-lucidchart
+      run: go build -o baton-lucidchart ./cmd/baton-lucidchart
+      shell: bash
+    - name: Build test server
+      run: go build -o test-server ./cmd/test-server
+      shell: bash
+    - name: Start test server
+      run: ./test-server &
+      shell: bash
+    - name: Wait for test server
+      run: |
+        for i in $(seq 1 10); do
+          curl -sf http://localhost:8080/health > /dev/null 2>&1 && exit 0
+          sleep 1
+        done
+        echo "Test server failed to start"; exit 1
+      shell: bash

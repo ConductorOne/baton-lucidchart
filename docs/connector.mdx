@@ -20,7 +20,7 @@ The Lucidchart connector supports [automatic account provisioning](/product/admi
 
 When a new account is created by C1, the account's password will be sent to a [vault](/product/admin/vaults). 
 
-This connector does not support account deprovisioning. You must deprovision accounts directly in Lucidchart.
+Account deprovisioning (delete) requires a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation work, but Delete and the enable/disable/update-profile actions are unavailable.
 
 ## Gather Lucidchart credentials 
 

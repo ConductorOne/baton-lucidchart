@@ -55,6 +55,26 @@ var (
 		field.WithExportTarget(field.ExportTargetCLIOnly),
 	)
 
+	LucidScimTokenField = field.StringField(
+		"lucid-scim-token",
+		field.WithDisplayName("Lucidchart SCIM Token"),
+		field.WithDescription("The SCIM 2.0 bearer token for user deprovisioning (deactivate/delete). Requires Lucid Enterprise tier. Optional: sync and account creation work without it."),
+		field.WithIsSecret(true),
+	)
+
+	ScimBaseURLField = field.StringField(
+		"scim-base-url",
+		field.WithDescription("Override the Lucid SCIM base URL (for testing)"),
+		field.WithHidden(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+	)
+
+	LucidContentTransferUserIdField = field.StringField(
+		"lucid-content-transfer-user-id",
+		field.WithDisplayName("Content Transfer User ID"),
+		field.WithDescription("User ID to transfer owned documents to before deleting a user. When set, a user delete first transfers their content to this user so it is retained."),
+	)
+
 	ConfigurationFields = []field.SchemaField{
 		LucidApiKeyField,
 		LucidOAuthField,
@@ -63,8 +83,10 @@ var (
 		LucidRefreshTokenField,
 		ExcludeShortcutsField,
 		BaseURLField,
+		LucidScimTokenField,
+		ScimBaseURLField,
+		LucidContentTransferUserIdField,
 	}
-
 )
 
 //go:generate go run ./gen

@@ -32,14 +32,24 @@ type ClientUrl string
 var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
 var LucidchartApiUrl ClientUrl = "https://api.lucid.co"
 
+// LucidScimUrl is the default SCIM 2.0 base URL. SCIM is a separate surface
+// from the REST API: a different host, a separate (Enterprise-tier) bearer
+// token, and SCIM 2.0 JSON bodies. It is the official user-deprovisioning path.
+var LucidScimUrl ClientUrl = "https://users.lucid.app/scim/v2"
+
 type LucidchartClient struct {
 	client      *uhttp.BaseHttpClient
 	tokenSource oauth2.TokenSource
 	apiKey      string
 	baseURL     string
+	// scimToken is the separate Enterprise SCIM bearer token. When empty the
+	// SCIM deprovisioning operations (deactivate/delete) are unavailable.
+	scimToken string
+	// scimBaseURL is the SCIM 2.0 base URL. Defaults to LucidScimUrl.
+	scimBaseURL string
 }
 
-func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, baseURL string) (*LucidchartClient, error) {
+func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, baseURL, scimToken, scimBaseURL string) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -54,12 +64,24 @@ func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.
 		baseURL = string(LucidchartApiUrl)
 	}
 
+	if scimBaseURL == "" {
+		scimBaseURL = string(LucidScimUrl)
+	}
+
 	return &LucidchartClient{
 		client:      uhttpClient,
 		tokenSource: tokenSource,
 		apiKey:      apiKey,
 		baseURL:     baseURL,
+		scimToken:   scimToken,
+		scimBaseURL: scimBaseURL,
 	}, nil
+}
+
+// ScimConfigured reports whether a SCIM bearer token was supplied. The SCIM
+// deprovisioning operations require Lucid Enterprise tier and a separate token.
+func (c *LucidchartClient) ScimConfigured() bool {
+	return c.scimToken != ""
 }
 
 func (c *LucidchartClient) newRequest(
