@@ -23,14 +23,12 @@ var (
 		"lucid-client-id",
 		field.WithDisplayName("Lucidchart Client ID"),
 		field.WithDescription("The OAuth2 client ID for the Lucidchart API."),
-		field.WithRequired(true),
 	)
 
 	LucidClientSecretField = field.StringField(
 		"lucid-client-secret",
 		field.WithDisplayName("Lucidchart Client Secret"),
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
-		field.WithRequired(true),
 		field.WithIsSecret(true),
 	)
 
@@ -67,13 +65,11 @@ var (
 		BaseURLField,
 	}
 
-	FieldRelationships = []field.SchemaFieldRelationship{}
 )
 
 //go:generate go run ./gen
 var Config = field.NewConfiguration(
 	ConfigurationFields,
-	field.WithConstraints(FieldRelationships...),
 	field.WithConnectorDisplayName("Lucidchart"),
 	field.WithIconUrl("/static/app-icons/lucidchart.svg"),
 	field.WithHelpUrl("/docs/baton/lucidchart"),

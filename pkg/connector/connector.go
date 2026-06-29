@@ -2,7 +2,7 @@ package connector
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
 
 	cfg "github.com/conductorone/baton-lucidchart/pkg/config"
@@ -97,13 +97,13 @@ const lucidTokenURL = "https://api.lucid.co/oauth2/token" //nolint:gosec // not 
 // New returns a new instance of the connector.
 func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	if connectorConfig.LucidApiKey == "" {
-		return nil, nil, errors.New("lucid-api-key is required")
+		return nil, nil, fmt.Errorf("baton-lucidchart: lucid-api-key is required")
 	}
 
 	var tokenSource oauth2.TokenSource
 	if connectorConfig.LucidRefreshToken == "" {
 		if opts == nil || opts.TokenSource == nil {
-			return nil, nil, errors.New("lucid-refresh-token is required when no OAuth token source is provided")
+			return nil, nil, fmt.Errorf("baton-lucidchart: lucid-refresh-token is required when no OAuth token source is provided")
 		}
 		tokenSource = opts.TokenSource
 	} else {
