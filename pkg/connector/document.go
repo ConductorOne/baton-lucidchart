@@ -11,7 +11,6 @@ import (
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -35,12 +34,13 @@ func (o *documentBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 	return documentResourceType
 }
 
-func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
+	pToken := &opts.PageToken
 
 	if parentResourceID == nil && pToken.Token == "" {
 		l.Debug("baton-lucidchart: ignoring first List call for root folder, only uses parentResourceID")
-		return nil, "", nil, nil
+		return nil, nil, nil
 	}
 
 	if parentResourceID != nil {
@@ -52,12 +52,12 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 		if parentResourceID.Resource == rootId {
 			folderContent, nextToken, err = o.client.RootFolderContent(ctx, pToken.Token)
 			if err != nil {
-				return nil, "", nil, err
+				return nil, nil, err
 			}
 		} else {
 			folderContent, nextToken, err = o.client.FolderContent(ctx, parentResourceID.Resource, pToken.Token)
 			if err != nil {
-				return nil, "", nil, err
+				return nil, nil, err
 			}
 		}
 
@@ -74,19 +74,20 @@ func (o *documentBuilder) List(ctx context.Context, parentResourceID *v2.Resourc
 
 			newRes, err := documentResource(item.ID(), item.Name, parentResourceID)
 			if err != nil {
-				return nil, "", nil, err
+				return nil, nil, err
 			}
 			resources = append(resources, newRes)
 		}
 
-		return resources, nextToken, nil, nil
+		return resources, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 	}
 
 	l.Error("invalid parentResourceID", zap.Any("parentResourceID", parentResourceID))
 
-	return nil, "", nil, nil
+	return nil, nil, nil
 }
-func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+
+func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 
 	for _, role := range client.UserFolderRoles {
@@ -98,23 +99,25 @@ func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource,
 		rv = append(rv, entitlement.NewPermissionEntitlement(resource, documentHasUserAccessEntitlement+role, assigmentOptions...))
 	}
 
-	return rv, "", nil, nil
+	return rv, nil, nil
 }
 
-func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 	if resource.Id.Resource == "root" {
-		return nil, "", nil, nil
+		return nil, nil, nil
 	}
+
+	pToken := &opts.PageToken
 
 	collaborators, nextToken, err := o.client.ListDocumentUserCollaborators(ctx, resource.Id.Resource, pToken.Token)
 	if err != nil {
 		// Ignore permission denied errors as they indicate no access to collaborators for this document
 		if status.Code(err) == codes.PermissionDenied {
 			l.Debug("baton-lucidchart: permission denied when listing document collaborators", zap.String("document_id", resource.Id.Resource))
-			return nil, "", nil, nil
+			return nil, nil, nil
 		}
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var grants []*v2.Grant
@@ -122,7 +125,7 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pTo
 	for _, collaborator := range collaborators {
 		userID, err := rs.NewResourceID(userResourceType, collaborator.UserId)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		metadata := map[string]interface{}{
@@ -135,7 +138,7 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, pTo
 		grants = append(grants, newGrant)
 	}
 
-	return grants, nextToken, nil, nil
+	return grants, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 }
 
 func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {

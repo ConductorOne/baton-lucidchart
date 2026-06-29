@@ -1,40 +1,49 @@
-package main
+package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/spf13/viper"
 )
 
 var (
 	LucidApiKeyField = field.StringField(
 		"lucid-api-key",
+		field.WithDisplayName("Lucidchart API Key"),
 		field.WithDescription("The API key for the Lucidchart API."),
 		field.WithRequired(true),
 		field.WithIsSecret(true),
 	)
 
+	LucidOAuthField = field.Oauth2Field(
+		"oauth2",
+		field.WithDisplayName("Lucidchart OAuth2 Token"),
+		field.WithDescription("The OAuth2 token for the Lucidchart API."),
+	)
+
 	LucidClientIdField = field.StringField(
 		"lucid-client-id",
+		field.WithDisplayName("Lucidchart Client ID"),
 		field.WithDescription("The OAuth2 client ID for the Lucidchart API."),
-		field.WithRequired(true),
 	)
 
 	LucidClientSecretField = field.StringField(
 		"lucid-client-secret",
+		field.WithDisplayName("Lucidchart Client Secret"),
 		field.WithDescription("The OAuth2 client secret for the Lucidchart API."),
-		field.WithRequired(true),
 		field.WithIsSecret(true),
 	)
 
 	LucidRefreshTokenField = field.StringField(
 		"lucid-refresh-token",
+		field.WithDisplayName("Lucidchart Refresh Token"),
 		field.WithDescription("The OAuth2 refresh token for the Lucidchart API."),
-		field.WithRequired(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+		field.WithHidden(true),
 		field.WithIsSecret(true),
 	)
 
 	ExcludeShortcutsField = field.BoolField(
 		"exclude-shortcuts",
+		field.WithDisplayName("Exclude Shortcuts"),
 		field.WithDescription("Exclude shortcut documents and folders"),
 		field.WithDefaultValue(false),
 	)
@@ -46,11 +55,9 @@ var (
 		field.WithExportTarget(field.ExportTargetCLIOnly),
 	)
 
-	// ConfigurationFields defines the external configuration required for the
-	// connector to run. Note: these fields can be marked as optional or
-	// required.
 	ConfigurationFields = []field.SchemaField{
 		LucidApiKeyField,
+		LucidOAuthField,
 		LucidClientIdField,
 		LucidClientSecretField,
 		LucidRefreshTokenField,
@@ -58,17 +65,12 @@ var (
 		BaseURLField,
 	}
 
-	// FieldRelationships defines relationships between the fields listed in
-	// ConfigurationFields that can be automatically validated. For example, a
-	// username and password can be required together, or an access token can be
-	// marked as mutually exclusive from the username password pair.
-	FieldRelationships = []field.SchemaFieldRelationship{}
 )
 
-// ValidateConfig is run after the configuration is loaded, and should return an
-// error if it isn't valid. Implementing this function is optional, it only
-// needs to perform extra validations that cannot be encoded with configuration
-// parameters.
-func ValidateConfig(v *viper.Viper) error {
-	return nil
-}
+//go:generate go run ./gen
+var Config = field.NewConfiguration(
+	ConfigurationFields,
+	field.WithConnectorDisplayName("Lucidchart"),
+	field.WithIconUrl("/static/app-icons/lucidchart.svg"),
+	field.WithHelpUrl("/docs/baton/lucidchart"),
+)
