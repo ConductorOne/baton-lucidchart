@@ -247,13 +247,18 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 	userID := resourceID.Resource
 
 	// Precondition: transfer owned content to the configured recipient so it is
-	// retained after the user is deleted. Any failure — including 404 — surfaces
-	// as an error: a failed transfer must not silently lead to content loss.
+	// retained after the user is deleted. Transfer failures surface as errors so
+	// a failed transfer cannot silently lead to content loss. GetUser not-found
+	// is treated as already-deleted success (platform retries after a prior
+	// successful delete must not fail permanently).
 	// The Lucid transferUserContent API requires email addresses, not numeric
 	// IDs, so we resolve the user's email via GetUser before calling it.
 	if o.contentTransferUserEmail != "" {
 		fromUser, err := o.client.GetUser(ctx, userID)
 		if err != nil {
+			if client.IsNotFoundError(err) {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
 		}
 		if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
