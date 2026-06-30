@@ -161,11 +161,11 @@ func newMux(s *store) *http.ServeMux {
 		id := r.PathValue("id")
 		u, ok := s.getUserByID(id)
 		if !ok {
-			log.Printf("GET /v1/users/%s — not found", id)
+			log.Printf("GET /v1/users/%s — not found", id) //nolint:gosec // test-server: path value is diagnostic only
 			http.NotFound(w, r)
 			return
 		}
-		log.Printf("GET /v1/users/%s → email=%s", id, u.Email)
+		log.Printf("GET /v1/users/%s → email=%s", id, u.Email) //nolint:gosec // test-server: path value is diagnostic only
 		writeJSON(w, http.StatusOK, u)
 	})
 
@@ -241,7 +241,7 @@ func newMux(s *store) *http.ServeMux {
 			return
 		}
 		id := r.PathValue("id")
-		log.Printf("PATCH /scim/v2/Users/%s", id)
+		log.Printf("PATCH /scim/v2/Users/%s", id) //nolint:gosec // test-server: path value is diagnostic only
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"id":     id,
 			"active": true,
@@ -253,14 +253,14 @@ func newMux(s *store) *http.ServeMux {
 		}
 		id := r.PathValue("id")
 		removed := s.deleteUserByScimID(id)
-		log.Printf("DELETE /scim/v2/Users/%s removed=%v", id, removed)
+		log.Printf("DELETE /scim/v2/Users/%s removed=%v", id, removed) //nolint:gosec // test-server: path value is diagnostic only
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	// Catch-all: any route not registered above returns 404 so a wrong connector
 	// path is caught immediately rather than silently swallowed.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("UNMATCHED ROUTE: %s %s — returning 404", r.Method, r.URL.Path)
+		log.Printf("UNMATCHED ROUTE: %s %s — returning 404", r.Method, r.URL.Path) //nolint:gosec // test-server: path value is diagnostic only
 		http.NotFound(w, r)
 	})
 
