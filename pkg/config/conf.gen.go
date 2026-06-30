@@ -4,15 +4,15 @@ package config
 import "reflect"
 
 type Lucidchart struct {
-	LucidApiKey                string `mapstructure:"lucid-api-key"`
-	Oauth2                     string `mapstructure:"oauth2"`
-	LucidClientId              string `mapstructure:"lucid-client-id"`
-	LucidClientSecret          string `mapstructure:"lucid-client-secret"`
-	LucidRefreshToken          string `mapstructure:"lucid-refresh-token"`
-	ExcludeShortcuts           bool   `mapstructure:"exclude-shortcuts"`
-	BaseUrl                    string `mapstructure:"base-url"`
-	LucidScimToken             string `mapstructure:"lucid-scim-token"`
-	ScimBaseUrl                string `mapstructure:"scim-base-url"`
+	LucidApiKey                   string `mapstructure:"lucid-api-key"`
+	Oauth2                        string `mapstructure:"oauth2"`
+	LucidClientId                 string `mapstructure:"lucid-client-id"`
+	LucidClientSecret             string `mapstructure:"lucid-client-secret"`
+	LucidRefreshToken             string `mapstructure:"lucid-refresh-token"`
+	ExcludeShortcuts              bool   `mapstructure:"exclude-shortcuts"`
+	BaseUrl                       string `mapstructure:"base-url"`
+	LucidScimToken                string `mapstructure:"lucid-scim-token"`
+	ScimBaseUrl                   string `mapstructure:"scim-base-url"`
 	LucidContentTransferUserEmail string `mapstructure:"lucid-content-transfer-user-email"`
 }
 
