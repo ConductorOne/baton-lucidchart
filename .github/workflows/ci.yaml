@@ -30,6 +30,19 @@ jobs:
       - uses: ./.github/actions/start-test-server
       - name: Run sync (exclude shortcuts)
         run: ./baton-lucidchart --exclude-shortcuts
+      - name: Install baton-test
+        run: go install github.com/conductorone/baton-test/cmd/baton-test@latest
+      - name: Run SCIM deprovisioning with content-transfer (email proof)
+        # Exercises the full delete lifecycle with content-transfer configured.
+        # The test-server's POST /v1/transferUserContent handler asserts that
+        # fromUser/toUser are email addresses (returns 400 for numeric IDs), so
+        # this step fails if the connector still passes numeric IDs. Requires
+        # SCIM configured (BATON_LUCID_SCIM_TOKEN set in env above).
+        env:
+          CONNECTOR_NAME: baton-lucidchart
+          BATON_LUCID_CONTENT_TRANSFER_USER_EMAIL: owner@example.com
+        run: |
+          $(go env GOPATH)/bin/baton-test run deprovisioning user --show-output
       - name: Stop test server
         if: always()
         run: pkill -f test-server || true

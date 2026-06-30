@@ -13,7 +13,7 @@ type Lucidchart struct {
 	BaseUrl                    string `mapstructure:"base-url"`
 	LucidScimToken             string `mapstructure:"lucid-scim-token"`
 	ScimBaseUrl                string `mapstructure:"scim-base-url"`
-	LucidContentTransferUserId string `mapstructure:"lucid-content-transfer-user-id"`
+	LucidContentTransferUserEmail string `mapstructure:"lucid-content-transfer-user-email"`
 }
 
 func (c *Lucidchart) findFieldByTag(tagValue string) (any, bool) {

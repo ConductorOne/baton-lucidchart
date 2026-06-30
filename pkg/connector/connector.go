@@ -23,15 +23,15 @@ const (
 )
 
 type Connector struct {
-	client                *client.LucidchartClient
-	excludeShortcuts      bool
-	contentTransferUserID string
+	client                   *client.LucidchartClient
+	excludeShortcuts         bool
+	contentTransferUserEmail string
 }
 
 // ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		newUserBuilder(d.client, d.contentTransferUserID),
+		newUserBuilder(d.client, d.contentTransferUserEmail),
 		newFolderBuilder(d.client, d.excludeShortcuts),
 		newDocumentBuilder(d.client, d.excludeShortcuts),
 	}
@@ -147,8 +147,8 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.Connect
 	}
 
 	return &Connector{
-		client:                lucidClient,
-		excludeShortcuts:      connectorConfig.ExcludeShortcuts,
-		contentTransferUserID: connectorConfig.LucidContentTransferUserId,
+		client:                   lucidClient,
+		excludeShortcuts:         connectorConfig.ExcludeShortcuts,
+		contentTransferUserEmail: connectorConfig.LucidContentTransferUserEmail,
 	}, nil, nil
 }

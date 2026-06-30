@@ -107,13 +107,14 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 	return nil, nil, nil
 }
 
-// TransferContent moves all documents owned by fromUserID to toUserID via
-// POST /v1/transferUserContent. Call before deleting a user when their content
-// must be retained.
-func (c *LucidchartClient) TransferContent(ctx context.Context, fromUserID, toUserID string) (annotations.Annotations, error) {
+// TransferContent moves all documents owned by fromUserEmail to toUserEmail via
+// POST /v1/transferUserContent. The Lucid API requires email addresses for both
+// fields ("Email of the user whose content will be transferred"). Call before
+// deleting a user when their content must be retained.
+func (c *LucidchartClient) TransferContent(ctx context.Context, fromUserEmail, toUserEmail string) (annotations.Annotations, error) {
 	payload := &TransferContentPayload{
-		FromUser: fromUserID,
-		ToUser:   toUserID,
+		FromUser: fromUserEmail,
+		ToUser:   toUserEmail,
 	}
 
 	req, err := c.newRequest(ctx, http.MethodPost, "/v1/transferUserContent", payload, LucidAuthTypeOAuth2)

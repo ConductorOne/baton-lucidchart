@@ -52,9 +52,10 @@ func isKnownScimRole(role string) bool {
 
 type userBuilder struct {
 	client *client.LucidchartClient
-	// contentTransferUserID, when set, receives a deleted user's documents
-	// before the user is removed, so owned content is retained.
-	contentTransferUserID string
+	// contentTransferUserEmail, when set, receives a deleted user's documents
+	// before the user is removed, so owned content is retained. Must be an
+	// email address: the Lucid transferUserContent API requires email, not ID.
+	contentTransferUserEmail string
 }
 
 func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -248,8 +249,14 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 	// Precondition: transfer owned content to the configured recipient so it is
 	// retained after the user is deleted. Any failure — including 404 — surfaces
 	// as an error: a failed transfer must not silently lead to content loss.
-	if o.contentTransferUserID != "" {
-		if _, err := o.client.TransferContent(ctx, userID, o.contentTransferUserID); err != nil {
+	// The Lucid transferUserContent API requires email addresses, not numeric
+	// IDs, so we resolve the user's email via GetUser before calling it.
+	if o.contentTransferUserEmail != "" {
+		fromUser, err := o.client.GetUser(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
+		}
+		if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
 			return nil, fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
 		}
 	}
@@ -266,9 +273,9 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 	return annos, nil
 }
 
-func newUserBuilder(client *client.LucidchartClient, contentTransferUserID string) *userBuilder {
+func newUserBuilder(client *client.LucidchartClient, contentTransferUserEmail string) *userBuilder {
 	return &userBuilder{
-		client:                client,
-		contentTransferUserID: contentTransferUserID,
+		client:                   client,
+		contentTransferUserEmail: contentTransferUserEmail,
 	}
 }

@@ -69,10 +69,10 @@ var (
 		field.WithExportTarget(field.ExportTargetCLIOnly),
 	)
 
-	LucidContentTransferUserIdField = field.StringField(
-		"lucid-content-transfer-user-id",
-		field.WithDisplayName("Content Transfer User ID"),
-		field.WithDescription("User ID to transfer owned documents to before deleting a user. When set, a user delete first transfers their content to this user so it is retained."),
+	LucidContentTransferUserEmailField = field.StringField(
+		"lucid-content-transfer-user-email",
+		field.WithDisplayName("Content Transfer User Email"),
+		field.WithDescription("Email address of the user to transfer owned documents to before deleting a user. When set, a user delete first transfers their content to this user so it is retained. Must be an email address — the Lucid transferUserContent API requires email, not a numeric user ID."),
 	)
 
 	ConfigurationFields = []field.SchemaField{
@@ -85,7 +85,7 @@ var (
 		BaseURLField,
 		LucidScimTokenField,
 		ScimBaseURLField,
-		LucidContentTransferUserIdField,
+		LucidContentTransferUserEmailField,
 	}
 )
 

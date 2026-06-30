@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -38,8 +39,9 @@ type user struct {
 }
 
 type store struct {
-	mu    sync.Mutex
-	users []user
+	mu      sync.Mutex
+	users   []user
+	nextID  int
 }
 
 func newStore() *store {
@@ -48,6 +50,7 @@ func newStore() *store {
 			{AccountId: 1, Email: "owner@example.com", Name: "Olivia Owner", UserId: 101, Usernames: "owner@example.com", Roles: []string{"admin"}},
 			{AccountId: 1, Email: "editor@example.com", Name: "Eddie Editor", UserId: 102, Usernames: "editor@example.com", Roles: []string{"member"}},
 		},
+		nextID: 1000,
 	}
 }
 
@@ -57,6 +60,51 @@ func (s *store) listUsers() []user {
 	out := make([]user, len(s.users))
 	copy(out, s.users)
 	return out
+}
+
+// addUser appends u to the store (allocating a UserId if zero) and returns it.
+func (s *store) addUser(u user) user {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u.UserId == 0 {
+		s.nextID++
+		u.UserId = s.nextID
+	}
+	s.users = append(s.users, u)
+	return u
+}
+
+// getUserByID returns the user with the given numeric UserId string, or false
+// if not found. Used by GET /v1/users/{id}.
+func (s *store) getUserByID(id string) (user, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.users {
+		if fmt.Sprintf("%d", u.UserId) == id {
+			return u, true
+		}
+	}
+	return user{}, false
+}
+
+// deleteUserByScimID removes the user whose UserId matches the numeric suffix
+// of a SCIM resource ID (e.g. "lucid-101" → removes UserId=101).
+// Returns true if a user was found and removed.
+func (s *store) deleteUserByScimID(scimID string) bool {
+	const prefix = "lucid-"
+	if !strings.HasPrefix(scimID, prefix) {
+		return false
+	}
+	rawID := scimID[len(prefix):]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, u := range s.users {
+		if fmt.Sprintf("%d", u.UserId) == rawID {
+			s.users = append(s.users[:i], s.users[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
@@ -104,29 +152,74 @@ func newMux(s *store) *http.ServeMux {
 		writeJSON(w, http.StatusOK, s.listUsers())
 	})
 
-	// REST: create user (POST /users) — stubbed echo so account creation, if
-	// exercised, succeeds. Not used by the sync job.
+	// REST: get single user by ID (GET /v1/users/{id}). Used by the connector
+	// to resolve a user's email address before calling transferUserContent.
+	mux.HandleFunc("GET /v1/users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireBearer(w, r) {
+			return
+		}
+		id := r.PathValue("id")
+		u, ok := s.getUserByID(id)
+		if !ok {
+			log.Printf("GET /v1/users/%s — not found", id)
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("GET /v1/users/%s → email=%s", id, u.Email)
+		writeJSON(w, http.StatusOK, u)
+	})
+
+	// REST: create user (POST /users) — parses request body and persists the
+	// new user so the next GET /users sync can find it. This is required for
+	// baton-test's provisioning flow, which creates then re-syncs to verify.
 	mux.HandleFunc("POST /users", func(w http.ResponseWriter, r *http.Request) {
 		if !requireBearer(w, r) {
 			return
 		}
-		writeJSON(w, http.StatusOK, user{AccountId: 1, Email: "new@example.com", Name: "New User", UserId: 999, Usernames: "new@example.com"})
+		var payload struct {
+			FirstName string `json:"firstName"`
+			LastName  string `json:"lastName"`
+			Email     string `json:"email"`
+			Username  string `json:"username"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		name := payload.FirstName + " " + payload.LastName
+		username := payload.Username
+		if username == "" {
+			username = payload.Email
+		}
+		u := s.addUser(user{AccountId: 1, Email: payload.Email, Name: name, Usernames: username})
+		log.Printf("POST /users created userId=%d email=%s", u.UserId, u.Email)
+		writeJSON(w, http.StatusOK, u)
 	})
 
-	// REST: transfer content before delete — accept and succeed.
-	mux.HandleFunc("POST /users/transferContent", func(w http.ResponseWriter, r *http.Request) {
+	// REST: content transfer before delete. The Lucid API requires email
+	// addresses for fromUser and toUser ("Email of the user whose content will
+	// be transferred"). Returns 400 if either field is missing '@' — this
+	// catches the pre-fix bug where numeric IDs were passed instead of emails.
+	mux.HandleFunc("POST /v1/transferUserContent", func(w http.ResponseWriter, r *http.Request) {
 		if !requireBearer(w, r) {
+			return
+		}
+		var body struct {
+			FromUser string `json:"fromUser"`
+			ToUser   string `json:"toUser"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		log.Printf("POST /v1/transferUserContent fromUser=%s toUser=%s", body.FromUser, body.ToUser)
+		if !strings.Contains(body.FromUser, "@") || !strings.Contains(body.ToUser, "@") {
+			msg := fmt.Sprintf("fromUser and toUser must be email addresses, got fromUser=%q toUser=%q", body.FromUser, body.ToUser)
+			log.Printf("POST /v1/transferUserContent 400: %s", msg)
+			http.Error(w, msg, http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	})
-
-	// REST: update user (PUT /users/{id}) — echo a user back.
-	mux.HandleFunc("PUT /users/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if !requireBearer(w, r) {
-			return
-		}
-		writeJSON(w, http.StatusOK, user{AccountId: 1, Email: "updated@example.com", Name: "Updated User", UserId: 101, Usernames: "updated@example.com"})
 	})
 
 	// REST: folder content — empty so the sync completes with no folders/documents
@@ -142,12 +235,15 @@ func newMux(s *store) *http.ServeMux {
 
 	// SCIM: deactivate/reactivate (PATCH) and delete (DELETE). Separate base URL
 	// (/scim/v2) and bearer token in the real API; here any bearer is accepted.
+	// Logs the {id} path value so we can confirm the connector sends lucid-<userId>.
 	mux.HandleFunc("PATCH /scim/v2/Users/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !requireBearer(w, r) {
 			return
 		}
+		id := r.PathValue("id")
+		log.Printf("PATCH /scim/v2/Users/%s", id)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"id":     r.PathValue("id"),
+			"id":     id,
 			"active": true,
 		})
 	})
@@ -155,7 +251,17 @@ func newMux(s *store) *http.ServeMux {
 		if !requireBearer(w, r) {
 			return
 		}
+		id := r.PathValue("id")
+		removed := s.deleteUserByScimID(id)
+		log.Printf("DELETE /scim/v2/Users/%s removed=%v", id, removed)
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// Catch-all: any route not registered above returns 404 so a wrong connector
+	// path is caught immediately rather than silently swallowed.
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("UNMATCHED ROUTE: %s %s — returning 404", r.Method, r.URL.Path)
+		http.NotFound(w, r)
 	})
 
 	return mux
