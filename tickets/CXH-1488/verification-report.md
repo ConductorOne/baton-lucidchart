@@ -124,3 +124,53 @@ The test-server's `POST /v1/transferUserContent` handler asserts `'@'` in both f
 All 5 reviewer comments from PR #54 remain addressed. The one real bug (email vs ID in `transferUserContent`) is fixed and proven by the mock log: both `fromUser` and `toUser` are now email addresses (`editor@example.com` and `owner@example.com`), the test-server's email assertion passes, and the delete cycle completes successfully (`All tests passed! (2.3s)`).
 
 Lint: 6 warnings from golangci-lint — 5 gosec G706 (log injection) in `cmd/test-server/main.go` and 1 revive line-length in `pkg/config/config.go`. All are in the test-server binary and a generated description string; production connector code is clean. These are acceptable for a test-only binary and a config description field.
+
+---
+
+## Delete Idempotency Fix (GetUser 404 regression)
+
+**Date:** 2026-06-30 (follow-up to email fix)
+
+### Problem
+
+After the content-transfer email fix, `Delete` calls `GetUser` before `TransferContent` when `lucid-content-transfer-user-email` is set. A 404 from `GetUser` was returned as a hard error, breaking the documented delete-idempotency contract: platform retries after an already-completed delete would fail permanently instead of succeeding.
+
+### Fix
+
+In `pkg/connector/users.go` `Delete`, when `GetUser` returns `client.IsNotFoundError`, return `(nil, nil)` immediately — skip transfer and SCIM delete, mirroring the existing `ScimDeleteUser` 404→success path. Other `GetUser` errors still propagate. `TransferContent` failures (including its own 404) remain hard errors.
+
+### Proof
+
+**Unit test:** `pkg/connector/users_test.go` — `TestDelete_GetUserNotFoundWithContentTransferIsSuccess`
+- Mock server returns 404 on `GET /v1/users/already-deleted`
+- Asserts `Delete` returns nil error
+- Asserts neither `POST /v1/transferUserContent` nor `DELETE /Users/lucid-*` is called
+
+```
+go test ./pkg/connector/ -run TestDelete_GetUserNotFound -v  → PASS
+```
+
+---
+
+## Supplemental Checks (idempotency dispatch)
+
+### 1. conf.gen.go integrity
+
+`go generate ./pkg/config/...` was run. Output differs from committed `pkg/config/conf.gen.go` only in struct-field column alignment and a trailing space on the `import "reflect"` line — **semantically identical**. Committed aligned version (from `7f057e0`) is kept; no further commit needed for generated drift.
+
+### 2. Lucid Create User — is `roles` optional?
+
+Per [Lucid Create User](https://lucid.readme.io/reference/createuser) and the enum cited in `users.go` (`knownRestRoles`, 10 confirmed kebab-case values), `roles` is an array field on the request body. The connector sends `roles` only when the provisioning profile includes them; an empty slice is omitted from the JSON payload via normal Go marshaling. **No client-side default (e.g. `"editor"`) is required** — Lucid assigns server-side role defaults when the field is absent. Removing the old hardcoded `roles=["editor"]` default is safe per the API shape; operators who need a specific role should set it explicitly in the account profile.
+
+---
+
+## Updated Gate Results (idempotency follow-up)
+
+| Gate | Result |
+|------|--------|
+| `go build ./...` | ✅ PASS |
+| `go vet ./...` | ✅ PASS |
+| `make lint` | ✅ PASS (0 issues) |
+| `go test ./...` | ✅ PASS (includes new idempotency unit test) |
+
+**VERDICT (idempotency): PASS** — regression fixed, unit-tested, pushed in `ec3f399`.
