@@ -90,6 +90,10 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "roles", Value: roleValues})
 	}
 
+	if len(ops) == 0 {
+		return nil, nil, fmt.Errorf("baton-lucidchart: update user: no updatable fields provided")
+	}
+
 	body := &ScimPatchOp{
 		Schemas:    []string{scimPatchOpSchema},
 		Operations: ops,

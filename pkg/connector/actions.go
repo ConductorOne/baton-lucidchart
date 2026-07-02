@@ -21,6 +21,23 @@ import (
 // Compile-time interface assertion. Mis-wiring fails the build, not the platform.
 var _ connectorbuilder.GlobalActionProvider = (*Connector)(nil)
 
+// knownScimRoles is the complete authoritative set of role strings accepted by
+// Lucid's SCIM PATCH /Users/{id} (Modify User) endpoint (PascalCase).
+// Source: https://lucid.readme.io/reference/modifyuserput
+var knownScimRoles = []string{
+	"AccountAdmin", "BillingAdmin", "Developer", "DocumentAdmin",
+	"EnterpriseShieldAdmin", "TemplateAdmin",
+}
+
+func isKnownScimRole(role string) bool {
+	for _, r := range knownScimRoles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	actionUpdateUser  = "update_user"
 	actionDisableUser = "disable_user"
@@ -145,7 +162,9 @@ func (c *Connector) updateUserHandler(
 			}
 		}
 		payload.Roles = roles
-		updated = append(updated, "roles")
+		if len(roles) > 0 {
+			updated = append(updated, "roles")
+		}
 	}
 
 	if len(updated) == 0 {
@@ -156,10 +175,7 @@ func (c *Connector) updateUserHandler(
 		return nil, nil, fmt.Errorf("baton-lucidchart: update_user %s: %w", userID, err)
 	}
 
-	result, _ := structpb.NewStruct(map[string]any{
-		retSuccess:       true,
-		"updated_fields": strings.Join(updated, ", "),
-	})
+	result := actions.NewReturnValues(true, actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")))
 	return result, nil, nil
 }
 
@@ -193,7 +209,7 @@ func (c *Connector) setUserActive(
 	}
 
 	if !c.client.ScimConfigured() {
-		return nil, nil, fmt.Errorf("baton-lucidchart: %s: SCIM is not configured (a SCIM bearer token, Enterprise tier, is required)", op)
+		return nil, nil, status.Error(codes.Unimplemented, fmt.Sprintf("baton-lucidchart: %s: SCIM not configured (a SCIM bearer token, Enterprise tier, is required)", op))
 	}
 
 	// SCIM PATCH replace of the active flag is idempotent: re-disabling an
@@ -204,7 +220,7 @@ func (c *Connector) setUserActive(
 		return nil, annos, fmt.Errorf("baton-lucidchart: %s %s: %w", op, userID, err)
 	}
 
-	result, _ := structpb.NewStruct(map[string]any{retSuccess: true})
+	result := actions.NewReturnValues(true)
 	return result, annos, nil
 }
 

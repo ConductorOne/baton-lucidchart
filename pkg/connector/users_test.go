@@ -20,10 +20,10 @@ func testLucidClient(t *testing.T, restURL, scimURL string) *client.LucidchartCl
 	return c
 }
 
-// When content transfer is configured, Delete resolves the leaving user's email
-// via GetUser before transfer. If the user is already gone (GetUser 404), delete
-// must still succeed so platform retries do not loop forever.
-func TestDelete_GetUserNotFoundWithContentTransferIsSuccess(t *testing.T) {
+// When content transfer is configured and GetUser returns 404, Delete must skip
+// the transfer (no email to resolve) but still attempt the SCIM delete —
+// REST 404 does not prove the SCIM record is gone.
+func TestDelete_GetUserNotFoundWithContentTransfer_SkipsTransferButRunsScimDelete(t *testing.T) {
 	var transferCalled, scimDeleteCalled bool
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,5 +49,5 @@ func TestDelete_GetUserNotFoundWithContentTransferIsSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, annos)
 	require.False(t, transferCalled, "transfer must be skipped when GetUser returns not-found")
-	require.False(t, scimDeleteCalled, "SCIM delete must be skipped when user already deleted at GetUser")
+	require.True(t, scimDeleteCalled, "SCIM delete must still be attempted even when GetUser returns not-found")
 }

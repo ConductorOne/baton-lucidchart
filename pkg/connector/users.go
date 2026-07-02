@@ -13,6 +13,8 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // knownRestRoles is the set of role strings accepted by Lucid's REST
@@ -26,23 +28,8 @@ var knownRestRoles = []string{
 	"organizational-group-admin", "team-manager",
 }
 
-// knownScimRoles is the set of role strings accepted by Lucid's SCIM
-// PATCH /Users/{id} (Modify User) endpoint (PascalCase).
-// Source: https://lucid.readme.io/reference/modifyuserput; the complete list
-// is not publicly enumerated — these 4 are confirmed by reviewer citation on PR #54.
-var knownScimRoles = []string{"BillingAdmin", "TeamAdmin", "DocumentAdmin", "TemplateAdmin"}
-
 func isKnownRestRole(role string) bool {
 	for _, r := range knownRestRoles {
-		if r == role {
-			return true
-		}
-	}
-	return false
-}
-
-func isKnownScimRole(role string) bool {
-	for _, r := range knownScimRoles {
 		if r == role {
 			return true
 		}
@@ -241,28 +228,26 @@ func userResource(user client.User) (*v2.Resource, error) {
 // connector that errored on an already-deleted user would fail every retry.
 func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
 	if !o.client.ScimConfigured() {
-		return nil, fmt.Errorf("baton-lucidchart: delete user: SCIM is not configured (a SCIM bearer token, Enterprise tier, is required for deprovisioning)")
+		return nil, status.Error(codes.Unimplemented, "baton-lucidchart: delete user: SCIM not configured (a SCIM bearer token, Enterprise tier, is required for deprovisioning)")
 	}
 
 	userID := resourceID.Resource
 
-	// Precondition: transfer owned content to the configured recipient so it is
-	// retained after the user is deleted. Transfer failures surface as errors so
-	// a failed transfer cannot silently lead to content loss. GetUser not-found
-	// is treated as already-deleted success (platform retries after a prior
-	// successful delete must not fail permanently).
-	// The Lucid transferUserContent API requires email addresses, not numeric
-	// IDs, so we resolve the user's email via GetUser before calling it.
+	// If content transfer is configured, resolve the user's email via GetUser
+	// (transferUserContent requires email, not ID). A 404 from GetUser means the
+	// REST record is already gone; skip the transfer but still attempt the SCIM
+	// delete below — REST 404 does not guarantee the SCIM record is absent, and
+	// ScimDeleteUser already treats its own 404 as success. Only a non-404 error
+	// or a transfer failure aborts the delete.
 	if o.contentTransferUserEmail != "" {
 		fromUser, err := o.client.GetUser(ctx, userID)
-		if err != nil {
-			if client.IsNotFoundError(err) {
-				return nil, nil
-			}
+		if err != nil && !client.IsNotFoundError(err) {
 			return nil, fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
 		}
-		if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
-			return nil, fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
+		if err == nil {
+			if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
+				return nil, fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
+			}
 		}
 	}
 
