@@ -127,6 +127,10 @@ func (c *Connector) updateUserHandler(
 		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: user_id is required")
 	}
 
+	if !c.client.ScimConfigured() {
+		return nil, nil, status.Error(codes.Unimplemented, "baton-lucidchart: update_user: SCIM not configured (a SCIM bearer token, Enterprise tier, is required)")
+	}
+
 	profile, err := profileArgAsMap(args, "user_profile")
 	if err != nil {
 		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: %v", err)
