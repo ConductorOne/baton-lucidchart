@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	cfg "github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
@@ -14,15 +15,23 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	// metaRole and metaCreated are grant-metadata keys shared by document and
+	// folder collaborator grants.
+	metaRole    = "role"
+	metaCreated = "created"
+)
+
 type Connector struct {
-	client           *client.LucidchartClient
-	excludeShortcuts bool
+	client                   *client.LucidchartClient
+	excludeShortcuts         bool
+	contentTransferUserEmail string
 }
 
 // ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		newUserBuilder(d.client),
+		newUserBuilder(d.client, d.contentTransferUserEmail),
 		newFolderBuilder(d.client, d.excludeShortcuts),
 		newDocumentBuilder(d.client, d.excludeShortcuts),
 	}
@@ -107,11 +116,17 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.Connect
 		}
 		tokenSource = opts.TokenSource
 	} else {
+		// Derive the token URL from base-url so that a test mock that overrides
+		// base-url also receives token requests locally.
+		tokenURL := lucidTokenURL
+		if connectorConfig.BaseUrl != "" {
+			tokenURL = strings.TrimRight(connectorConfig.BaseUrl, "/") + "/oauth2/token"
+		}
 		oauthConfig := &oauth2.Config{
 			ClientID:     connectorConfig.LucidClientId,
 			ClientSecret: connectorConfig.LucidClientSecret,
 			Endpoint: oauth2.Endpoint{
-				TokenURL: lucidTokenURL,
+				TokenURL: tokenURL,
 			},
 		}
 		tokenSource = oauthConfig.TokenSource(ctx, &oauth2.Token{
@@ -119,13 +134,21 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.Connect
 		})
 	}
 
-	lucidClient, err := client.NewLucidchartClient(ctx, connectorConfig.LucidApiKey, tokenSource, connectorConfig.BaseUrl)
+	lucidClient, err := client.NewLucidchartClient(
+		ctx,
+		connectorConfig.LucidApiKey,
+		tokenSource,
+		connectorConfig.BaseUrl,
+		connectorConfig.LucidScimToken,
+		connectorConfig.ScimBaseUrl,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return &Connector{
-		client:           lucidClient,
-		excludeShortcuts: connectorConfig.ExcludeShortcuts,
+		client:                   lucidClient,
+		excludeShortcuts:         connectorConfig.ExcludeShortcuts,
+		contentTransferUserEmail: connectorConfig.LucidContentTransferUserEmail,
 	}, nil, nil
 }

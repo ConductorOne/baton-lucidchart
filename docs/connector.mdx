@@ -16,11 +16,11 @@ sidebarTitle: "Lucidchart"
 
 The Lucidchart connector supports [automatic account provisioning](/product/admin/account-provisioning). 
 
-*Account provisioning is only available on Lucidchart accounts with Enterprise licenses.
+*Account provisioning is only available on Lucidchart accounts with Enterprise licenses. When creating an account with no roles specified, Lucid assigns its server-side default role.
 
 When a new account is created by C1, the account's password will be sent to a [vault](/product/admin/vaults). 
 
-This connector does not support account deprovisioning. You must deprovision accounts directly in Lucidchart.
+Account deprovisioning (delete) requires a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation work, but Delete and the enable/disable/update-profile actions are unavailable.
 
 ## Gather Lucidchart credentials 
 
@@ -92,6 +92,10 @@ Follow the [Lucidchart OAuth2 access token documentation](https://developer.luci
 If you want to use the Lucidchart connector to provision accounts, give the token the `account.user` scope.
 
    Account provisioning is only available on Lucidchart accounts with Enterprise licenses.
+
+   If you also want C1 to transfer a deleted user's documents to another user before removing the account, add the `account.user.transfercontent` scope. Without it, Delete calls to `POST /v1/transferUserContent` will return 403.
+
+   Note: if the user's REST record is already gone when deletion runs (GetUser returns 404), the content transfer is skipped and the SCIM delete proceeds — this is intentional idempotent retry behavior.
 </Step>
 <Step>
 Carefully copy and save the **refresh token** included in the token response.

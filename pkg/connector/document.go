@@ -129,8 +129,8 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, opt
 		}
 
 		metadata := map[string]interface{}{
-			"role":    collaborator.Role,
-			"created": collaborator.Created.String(),
+			metaRole:    collaborator.Role,
+			metaCreated: collaborator.Created.String(),
 		}
 
 		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+collaborator.Role, userID, grant.WithGrantMetadata(metadata))
@@ -164,8 +164,8 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		}
 
 		metadata := map[string]interface{}{
-			"role":    response.Role,
-			"created": response.Created.String(),
+			metaRole:    response.Role,
+			metaCreated: response.Created.String(),
 		}
 
 		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
