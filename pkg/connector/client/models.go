@@ -101,22 +101,22 @@ type DocumentShareLink struct {
 	AcceptUrl    string    `json:"acceptUrl"`
 }
 
+// Subscription matches GET /v1/subscriptions response.
+// Source: https://developer.lucid.co/reference/listsubscriptions
 type Subscription struct {
-	SubscriptionId string     `json:"subscriptionId"`
-	Product        string     `json:"product"`
-	PlanName       string     `json:"planName"`
-	TotalSeats     int64      `json:"totalSeats"`
-	UsedSeats      int64      `json:"usedSeats"`
-	IsTrial        bool       `json:"isTrial"`
-	StartDate      *time.Time `json:"startDate"`
-	EndDate        *time.Time `json:"endDate"`
-	RenewalDate    *time.Time `json:"renewalDate"`
+	Id           string `json:"id"`
+	LicenseTotal *int64 `json:"licenseTotal"` // omitted when unlimited
+	LicensesUsed int64  `json:"licensesUsed"`
+	Trial        bool   `json:"trial"`
+	Start        string `json:"start"`
+	End          string `json:"end"`
+	Renewal      string `json:"renewal"`
 }
 
+// License matches GET /v1/subscriptions/{id}/licenses response.
+// Source: https://developer.lucid.co/reference/listsubscriptionlicenses
 type License struct {
-	LicenseId      string `json:"licenseId"`
-	SubscriptionId string `json:"subscriptionId"`
 	UserId         int    `json:"userId"`
-	Product        string `json:"product"`
-	Role           string `json:"role"`
+	SubscriptionId string `json:"subscriptionId"`
+	Created        string `json:"created"`
 }
