@@ -10,16 +10,17 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const assignedEntitlement = "assigned"
 
+type licenseClient interface {
+	ListSubscriptions(ctx context.Context, pageToken string) ([]client.Subscription, string, error)
+	ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]client.License, string, error)
+}
+
 type licenseBuilder struct {
-	client *client.LucidchartClient
+	client licenseClient
 }
 
 func (l *licenseBuilder) ResourceType(_ context.Context) *v2.ResourceType {
@@ -52,16 +53,10 @@ func licenseResource(sub client.Subscription) (*v2.Resource, error) {
 }
 
 func (l *licenseBuilder) List(ctx context.Context, _ *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	logger := ctxzap.Extract(ctx)
 	pToken := &opts.PageToken
 
 	subscriptions, nextToken, err := l.client.ListSubscriptions(ctx, pToken.Token)
 	if err != nil {
-		code := status.Code(err)
-		if code == codes.NotFound || code == codes.PermissionDenied {
-			logger.Warn("baton-lucidchart: failed to fetch subscriptions; skipping license sync", zap.Error(err))
-			return nil, &rs.SyncOpResults{}, nil
-		}
 		return nil, nil, fmt.Errorf("baton-lucidchart: failed to fetch subscriptions: %w", err)
 	}
 
@@ -91,17 +86,11 @@ func (l *licenseBuilder) Entitlements(_ context.Context, resource *v2.Resource, 
 // Grants fetches user-license assignments from the Lucid Licensing API
 // (GET /v1/subscriptions/{id}/licenses) and emits one grant per assignment.
 func (l *licenseBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	logger := ctxzap.Extract(ctx)
 	pToken := &opts.PageToken
 
 	subscriptionId := resource.Id.Resource
 	licenses, nextToken, err := l.client.ListLicenses(ctx, subscriptionId, pToken.Token)
 	if err != nil {
-		code := status.Code(err)
-		if code == codes.NotFound || code == codes.PermissionDenied {
-			logger.Warn("baton-lucidchart: failed to fetch licenses; skipping license grants", zap.Error(err))
-			return nil, &rs.SyncOpResults{}, nil
-		}
 		return nil, nil, fmt.Errorf("baton-lucidchart: failed to fetch licenses for subscription %s: %w", subscriptionId, err)
 	}
 
