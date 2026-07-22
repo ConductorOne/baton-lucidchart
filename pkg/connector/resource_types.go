@@ -28,9 +28,5 @@ var licenseResourceType = &v2.ResourceType{
 	Traits: []v2.ResourceType_Trait{
 		v2.ResourceType_TRAIT_LICENSE_PROFILE,
 	},
-}
-
-//nolint:gochecknoinits // sets a package-level var's annotations before use; no viable non-init alternative for a package-scoped *v2.ResourceType
-func init() {
-	licenseResourceType.Annotations = annotations.New(&v2.OptInRequired{})
+	Annotations: annotations.New(&v2.OptInRequired{}),
 }

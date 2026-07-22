@@ -53,14 +53,12 @@ func licenseResource(sub client.Subscription) (*v2.Resource, error) {
 }
 
 func (l *licenseBuilder) List(ctx context.Context, _ *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	pToken := &opts.PageToken
-
-	subscriptions, nextToken, err := l.client.ListSubscriptions(ctx, pToken.Token)
+	subscriptions, nextToken, err := l.client.ListSubscriptions(ctx, opts.PageToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-lucidchart: failed to fetch subscriptions: %w", err)
 	}
 
-	var resources []*v2.Resource
+	resources := make([]*v2.Resource, 0, len(subscriptions))
 	for _, sub := range subscriptions {
 		lr, err := licenseResource(sub)
 		if err != nil {
