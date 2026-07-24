@@ -30,6 +30,7 @@ var licenseResourceType = &v2.ResourceType{
 	},
 	Annotations: annotations.New(
 		&v2.OptInRequired{},
+		&v2.SkipEntitlements{},
 		capabilityPermissions("licenses:admin.readonly"),
 	),
 }

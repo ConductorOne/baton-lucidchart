@@ -78,15 +78,17 @@ func (l *licenseBuilder) List(ctx context.Context, _ *v2.ResourceId, opts rs.Syn
 	return resources, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 }
 
-func (l *licenseBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	entitlementOpts := []ent.EntitlementOption{
+func (l *licenseBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	en := ent.NewAssignmentEntitlement(nil, assignedEntitlement,
 		ent.WithGrantableTo(userResourceType),
-		ent.WithDisplayName(fmt.Sprintf("%s license %s", resource.DisplayName, assignedEntitlement)),
-		ent.WithDescription(fmt.Sprintf("Holds a %s license seat in Lucid", resource.DisplayName)),
-	}
+		ent.WithDisplayName("Assigned"),
+		ent.WithDescription("Holds a license seat in this Lucid subscription"),
+	)
+	return []*v2.Entitlement{en}, nil, nil
+}
 
-	en := ent.NewAssignmentEntitlement(resource, assignedEntitlement, entitlementOpts...)
-	return []*v2.Entitlement{en}, &rs.SyncOpResults{}, nil
+func (l *licenseBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 // Grants fetches user-license assignments from the Lucid Licensing API

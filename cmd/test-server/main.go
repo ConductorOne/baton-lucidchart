@@ -66,6 +66,7 @@ type store struct {
 
 func newStore() *store {
 	licenseTotal := int64(10)
+	licenseTotal2 := int64(5)
 	return &store{
 		users: []user{
 			{AccountId: 1, Email: "owner@example.com", Name: "Olivia Owner", UserId: 101, Usernames: "owner@example.com", Roles: []string{"admin"}},
@@ -73,10 +74,12 @@ func newStore() *store {
 		},
 		subscriptions: []subscription{
 			{Id: "sub-1", LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: "2026-01-01", End: "2027-01-01", Renewal: "2027-01-01"},
+			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: "2026-01-01", End: "2027-01-01", Renewal: "2027-01-01"},
 		},
 		licenses: []license{
 			{UserId: 101, SubscriptionId: "sub-1", Created: "2026-01-01T00:00:00Z"},
 			{UserId: 102, SubscriptionId: "sub-1", Created: "2026-01-02T00:00:00Z"},
+			{UserId: 102, SubscriptionId: "sub-2", Created: "2026-01-03T00:00:00Z"},
 		},
 		nextID: 1000,
 	}
@@ -234,8 +237,9 @@ func newMux(s *store) *http.ServeMux {
 	})
 
 	// REST: list subscriptions (GET /v1/subscriptions, OAuth2). Single page
-	// (no Link header) — seeded with one subscription so the license resource
-	// type's List actually produces a resource to sync.
+	// (no Link header) — seeded with two subscriptions so the license resource
+	// type's List produces multiple resources to sync, and StaticEntitlements
+	// per-instance stamping can be verified across them.
 	mux.HandleFunc("GET /v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
 		if !requireBearer(w, r) {
 			return
