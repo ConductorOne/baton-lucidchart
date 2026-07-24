@@ -135,6 +135,9 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 	return response, nextToken, nil
 }
 
+// ListSubscriptions returns one page of subscriptions for the account.
+// GET /v1/subscriptions — https://developer.lucid.co/reference/listsubscriptions
+// Required scope: licenses:admin.readonly (OAuth2).
 func (c *LucidchartClient) ListSubscriptions(ctx context.Context, pageToken string) ([]Subscription, string, error) {
 	var response []Subscription
 
@@ -153,6 +156,9 @@ func (c *LucidchartClient) ListSubscriptions(ctx context.Context, pageToken stri
 	return response, nextToken, nil
 }
 
+// ListLicenses returns one page of licenses for a subscription.
+// GET /v1/subscriptions/{id}/licenses — https://developer.lucid.co/reference/listsubscriptionlicenses
+// Required scope: licenses:admin.readonly (OAuth2).
 func (c *LucidchartClient) ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]License, string, error) {
 	var response []License
 

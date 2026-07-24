@@ -14,6 +14,13 @@ import (
 
 const assignedEntitlement = "assigned"
 
+// Grant metadata keys for license assignments.
+const (
+	metadataKeySubscriptionID = "subscription_id"
+	metadataKeyUserID         = "user_id"
+	metadataKeyCreated        = "created"
+)
+
 type licenseClient interface {
 	ListSubscriptions(ctx context.Context, pageToken string) ([]client.Subscription, string, error)
 	ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]client.License, string, error)
@@ -53,7 +60,8 @@ func licenseResource(sub client.Subscription) (*v2.Resource, error) {
 }
 
 func (l *licenseBuilder) List(ctx context.Context, _ *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	subscriptions, nextToken, err := l.client.ListSubscriptions(ctx, opts.PageToken.Token)
+	pToken := &opts.PageToken
+	subscriptions, nextToken, err := l.client.ListSubscriptions(ctx, pToken.Token)
 	if err != nil {
 		return nil, nil, fmt.Errorf("baton-lucidchart: failed to fetch subscriptions: %w", err)
 	}
@@ -92,17 +100,17 @@ func (l *licenseBuilder) Grants(ctx context.Context, resource *v2.Resource, opts
 		return nil, nil, fmt.Errorf("baton-lucidchart: failed to fetch licenses for subscription %s: %w", subscriptionId, err)
 	}
 
-	var grants []*v2.Grant
+	grants := make([]*v2.Grant, 0, len(licenses))
 	for _, lic := range licenses {
 		userID, err := rs.NewResourceID(userResourceType, lic.UserId)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("baton-lucidchart: build user resource id for user %d: %w", lic.UserId, err)
 		}
 
 		metadata := map[string]interface{}{
-			"subscription_id": lic.SubscriptionId,
-			"user_id":         strconv.Itoa(lic.UserId),
-			"created":         lic.Created,
+			metadataKeySubscriptionID: lic.SubscriptionId,
+			metadataKeyUserID:         strconv.Itoa(lic.UserId),
+			metadataKeyCreated:        lic.Created,
 		}
 
 		g := grant.NewGrant(resource, assignedEntitlement, userID, grant.WithGrantMetadata(metadata))

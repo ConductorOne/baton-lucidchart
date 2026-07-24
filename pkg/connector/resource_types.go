@@ -28,5 +28,18 @@ var licenseResourceType = &v2.ResourceType{
 	Traits: []v2.ResourceType_Trait{
 		v2.ResourceType_TRAIT_LICENSE_PROFILE,
 	},
-	Annotations: annotations.New(&v2.OptInRequired{}),
+	Annotations: annotations.New(
+		&v2.OptInRequired{},
+		capabilityPermissions("licenses:admin.readonly"),
+	),
+}
+
+// capabilityPermissions builds the CapabilityPermissions annotation declaring
+// the OAuth scopes a resource type's API calls require.
+func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
+	var permissions []*v2.CapabilityPermission
+	for _, p := range perms {
+		permissions = append(permissions, v2.CapabilityPermission_builder{Permission: p}.Build())
+	}
+	return v2.CapabilityPermissions_builder{Permissions: permissions}.Build()
 }
