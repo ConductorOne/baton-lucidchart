@@ -33,13 +33,30 @@
         "annotations": [
           {
             "@type": "type.googleapis.com/c1.connector.v2.OptInRequired"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlements"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "licenses:admin.readonly"
+              }
+            ]
           }
         ]
       },
       "capabilities": [
         "CAPABILITY_SYNC"
       ],
-      "permissions": {},
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "licenses:admin.readonly"
+          }
+        ]
+      },
       "optInRequired": true
     },
     {
