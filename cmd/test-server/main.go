@@ -73,8 +73,8 @@ func newStore() *store {
 			{AccountId: 1, Email: "editor@example.com", Name: "Eddie Editor", UserId: 102, Usernames: "editor@example.com", Roles: []string{"member"}},
 		},
 		subscriptions: []subscription{
-			{Id: "sub-1", LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: "2026-01-01", End: "2027-01-01", Renewal: "2027-01-01"},
-			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: "2026-01-01", End: "2027-01-01", Renewal: "2027-01-01"},
+			{Id: "sub-1", LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: "2026-01-01T00:00:00Z", End: "2027-01-01T00:00:00Z", Renewal: "2027-01-01T00:00:00Z"},
+			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: "2026-01-01T00:00:00Z", End: "2027-01-01T00:00:00Z", Renewal: "2027-01-01T00:00:00Z"},
 		},
 		licenses: []license{
 			{UserId: 101, SubscriptionId: "sub-1", Created: "2026-01-01T00:00:00Z"},
