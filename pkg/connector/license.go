@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -14,12 +13,8 @@ import (
 
 const assignedEntitlement = "assigned"
 
-// Grant metadata keys for license assignments.
-const (
-	metadataKeySubscriptionID = "subscription_id"
-	metadataKeyUserID         = "user_id"
-	metadataKeyCreated        = "created"
-)
+// Grant metadata key for license assignments.
+const metadataKeyCreated = "created"
 
 type licenseClient interface {
 	ListSubscriptions(ctx context.Context, pageToken string) ([]client.Subscription, string, error)
@@ -110,9 +105,7 @@ func (l *licenseBuilder) Grants(ctx context.Context, resource *v2.Resource, opts
 		}
 
 		metadata := map[string]interface{}{
-			metadataKeySubscriptionID: lic.SubscriptionId,
-			metadataKeyUserID:         strconv.Itoa(lic.UserId),
-			metadataKeyCreated:        lic.Created,
+			metadataKeyCreated: lic.Created,
 		}
 
 		g := grant.NewGrant(resource, assignedEntitlement, userID, grant.WithGrantMetadata(metadata))
