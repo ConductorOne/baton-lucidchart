@@ -13,9 +13,6 @@ import (
 
 const assignedEntitlement = "assigned"
 
-// Grant metadata key for license assignments.
-const metadataKeyCreated = "created"
-
 type licenseClient interface {
 	ListSubscriptions(ctx context.Context, pageToken string) ([]client.Subscription, string, error)
 	ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]client.License, string, error)
@@ -30,7 +27,7 @@ func (l *licenseBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 }
 
 func licenseResource(sub client.Subscription) (*v2.Resource, error) {
-	name := "Lucid Subscription " + sub.Id
+	name := "Lucid License " + sub.Id
 
 	assignedEntitlementID := ent.NewEntitlementID(
 		&v2.Resource{Id: &v2.ResourceId{ResourceType: licenseResourceType.Id, Resource: sub.Id}},
@@ -105,7 +102,7 @@ func (l *licenseBuilder) Grants(ctx context.Context, resource *v2.Resource, opts
 		}
 
 		metadata := map[string]interface{}{
-			metadataKeyCreated: lic.Created,
+			metaCreated: lic.Created,
 		}
 
 		g := grant.NewGrant(resource, assignedEntitlement, userID, grant.WithGrantMetadata(metadata))
