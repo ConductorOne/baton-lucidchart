@@ -28,6 +28,14 @@ import (
 	"time"
 )
 
+// seedStart and seedEnd are the RFC3339 timestamps used as the start/created and
+// end/renewal dates for seed fixtures.
+const (
+	seedStart = "2026-01-01T00:00:00Z"
+	seedEnd   = "2027-01-01T00:00:00Z"
+	subOneID  = "sub-1"
+)
+
 // user mirrors client.User (pkg/connector/client/models.go).
 type user struct {
 	AccountId int      `json:"accountId"`
@@ -73,12 +81,12 @@ func newStore() *store {
 			{AccountId: 1, Email: "editor@example.com", Name: "Eddie Editor", UserId: 102, Usernames: "editor@example.com", Roles: []string{"member"}},
 		},
 		subscriptions: []subscription{
-			{Id: "sub-1", LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: "2026-01-01T00:00:00Z", End: "2027-01-01T00:00:00Z", Renewal: "2027-01-01T00:00:00Z"},
-			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: "2026-01-01T00:00:00Z", End: "2027-01-01T00:00:00Z", Renewal: "2027-01-01T00:00:00Z"},
+			{Id: subOneID, LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: seedStart, End: seedEnd, Renewal: seedEnd},
+			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: seedStart, End: seedEnd, Renewal: seedEnd},
 		},
 		licenses: []license{
-			{UserId: 101, SubscriptionId: "sub-1", Created: "2026-01-01T00:00:00Z"},
-			{UserId: 102, SubscriptionId: "sub-1", Created: "2026-01-02T00:00:00Z"},
+			{UserId: 101, SubscriptionId: subOneID, Created: seedStart},
+			{UserId: 102, SubscriptionId: subOneID, Created: "2026-01-02T00:00:00Z"},
 			{UserId: 102, SubscriptionId: "sub-2", Created: "2026-01-03T00:00:00Z"},
 		},
 		nextID: 1000,
