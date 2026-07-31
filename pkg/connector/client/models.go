@@ -100,3 +100,23 @@ type DocumentShareLink struct {
 	LastModified time.Time `json:"lastModified"`
 	AcceptUrl    string    `json:"acceptUrl"`
 }
+
+// Subscription matches GET /v1/subscriptions response.
+// Source: https://developer.lucid.co/reference/listsubscriptions
+type Subscription struct {
+	Id           string `json:"id"`
+	LicenseTotal *int64 `json:"licenseTotal"` // omitted when unlimited
+	LicensesUsed int64  `json:"licensesUsed"`
+	Trial        bool   `json:"trial"`
+	Start        string `json:"start"`
+	End          string `json:"end"`
+	Renewal      string `json:"renewal"`
+}
+
+// LicenseAssignment matches GET /v1/subscriptions/{id}/licenses response.
+// Source: https://developer.lucid.co/reference/listsubscriptionlicenses
+type LicenseAssignment struct {
+	UserId         int    `json:"userId"`
+	SubscriptionId string `json:"subscriptionId"`
+	Created        string `json:"created"`
+}

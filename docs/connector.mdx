@@ -13,10 +13,13 @@ sidebarTitle: "Lucidchart"
 | Accounts | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/>* |
 | Folders | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> |
 | Documents | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | 
+| Licenses ¹ | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | |
 
 The Lucidchart connector supports [automatic account provisioning](/product/admin/account-provisioning). 
 
 *Account provisioning is only available on Lucidchart accounts with Enterprise licenses. When creating an account with no roles specified, Lucid assigns its server-side default role.
+
+¹ Licenses is an opt-in resource type and is not synced by default. To enable it, select **Licenses** in the resource types to sync when configuring the connector. Syncing licenses requires the `licenses:admin.readonly` OAuth scope, which is only available on Lucidchart accounts with Enterprise licenses (see the OAuth scopes step below).
 
 When a new account is created by C1, the account's password will be sent to a [vault](/product/admin/vaults). 
 
@@ -96,6 +99,8 @@ If you want to use the Lucidchart connector to provision accounts, give the toke
    If you also want C1 to transfer a deleted user's documents to another user before removing the account, add the `account.user.transfercontent` scope. Without it, Delete calls to `POST /v1/transferUserContent` will return 403.
 
    Note: if the user's REST record is already gone when deletion runs (GetUser returns 404), the content transfer is skipped and the SCIM delete proceeds — this is intentional idempotent retry behavior.
+
+   If you want to sync license and subscription data (the opt-in **Licenses** resource type), add the `licenses:admin.readonly` scope. This scope requires a Lucidchart account with an Enterprise-tier license; Lucid's authorize endpoint returns `invalid_scope` for non-Enterprise tenants.
 </Step>
 <Step>
 Carefully copy and save the **refresh token** included in the token response.

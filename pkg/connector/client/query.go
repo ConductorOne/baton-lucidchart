@@ -18,6 +18,9 @@ var (
 
 	UpsertDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
 	DeleteDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
+
+	GetSubscriptionsPath        = "/v1/subscriptions"
+	GetSubscriptionLicensesPath = "/v1/subscriptions/%s/licenses"
 )
 
 // GetUser fetches a single user by their numeric REST user ID via
@@ -118,6 +121,49 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 	path := fmt.Sprintf(ListDocumentUserCollaboratorsPath, documentId)
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+// ListSubscriptions returns one page of subscriptions for the account.
+// GET /v1/subscriptions — https://developer.lucid.co/reference/listsubscriptions
+// Required scope: licenses:admin.readonly (OAuth2).
+func (c *LucidchartClient) ListSubscriptions(ctx context.Context, pageToken string) ([]Subscription, string, error) {
+	var response []Subscription
+
+	req, err := c.newRequest(ctx, http.MethodGet, GetSubscriptionsPath, nil, LucidAuthTypeOAuth2)
+	if err != nil {
+		return nil, "", err
+	}
+
+	addPageToken(req, pageToken)
+
+	nextToken, err := c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return response, nextToken, nil
+}
+
+// ListLicenses returns one page of licenses for a subscription.
+// GET /v1/subscriptions/{id}/licenses — https://developer.lucid.co/reference/listsubscriptionlicenses
+// Required scope: licenses:admin.readonly (OAuth2).
+func (c *LucidchartClient) ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]LicenseAssignment, string, error) {
+	var response []LicenseAssignment
+
+	path := fmt.Sprintf(GetSubscriptionLicensesPath, subscriptionId)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeOAuth2)
 	if err != nil {
 		return nil, "", err
 	}

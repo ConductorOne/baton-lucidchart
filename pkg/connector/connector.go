@@ -34,6 +34,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 		newUserBuilder(d.client, d.contentTransferUserEmail),
 		newFolderBuilder(d.client, d.excludeShortcuts),
 		newDocumentBuilder(d.client, d.excludeShortcuts),
+		newLicenseBuilder(d.client),
 	}
 }
 
