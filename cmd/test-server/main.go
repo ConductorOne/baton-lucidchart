@@ -49,7 +49,7 @@ type subscription struct {
 	Renewal      string `json:"renewal"`
 }
 
-// license mirrors client.License (pkg/connector/client/models.go).
+// license mirrors client.LicenseAssignment (pkg/connector/client/models.go).
 type license struct {
 	UserId         int    `json:"userId"`
 	SubscriptionId string `json:"subscriptionId"`

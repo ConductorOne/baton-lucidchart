@@ -15,7 +15,7 @@ const assignedEntitlement = "assigned"
 
 type licenseClient interface {
 	ListSubscriptions(ctx context.Context, pageToken string) ([]client.Subscription, string, error)
-	ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]client.License, string, error)
+	ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]client.LicenseAssignment, string, error)
 }
 
 type licenseBuilder struct {

@@ -18,7 +18,7 @@ type mockLicenseClient struct {
 	nextSubToken     string
 
 	licensesErr  error
-	licenses     []client.License
+	licenses     []client.LicenseAssignment
 	nextLicToken string
 }
 
@@ -26,7 +26,7 @@ func (m *mockLicenseClient) ListSubscriptions(_ context.Context, _ string) ([]cl
 	return m.subscriptions, m.nextSubToken, m.subscriptionsErr
 }
 
-func (m *mockLicenseClient) ListLicenses(_ context.Context, _ string, _ string) ([]client.License, string, error) {
+func (m *mockLicenseClient) ListLicenses(_ context.Context, _ string, _ string) ([]client.LicenseAssignment, string, error) {
 	return m.licenses, m.nextLicToken, m.licensesErr
 }
 

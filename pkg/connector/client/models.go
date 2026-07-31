@@ -113,9 +113,9 @@ type Subscription struct {
 	Renewal      string `json:"renewal"`
 }
 
-// License matches GET /v1/subscriptions/{id}/licenses response.
+// LicenseAssignment matches GET /v1/subscriptions/{id}/licenses response.
 // Source: https://developer.lucid.co/reference/listsubscriptionlicenses
-type License struct {
+type LicenseAssignment struct {
 	UserId         int    `json:"userId"`
 	SubscriptionId string `json:"subscriptionId"`
 	Created        string `json:"created"`

@@ -159,8 +159,8 @@ func (c *LucidchartClient) ListSubscriptions(ctx context.Context, pageToken stri
 // ListLicenses returns one page of licenses for a subscription.
 // GET /v1/subscriptions/{id}/licenses — https://developer.lucid.co/reference/listsubscriptionlicenses
 // Required scope: licenses:admin.readonly (OAuth2).
-func (c *LucidchartClient) ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]License, string, error) {
-	var response []License
+func (c *LucidchartClient) ListLicenses(ctx context.Context, subscriptionId string, pageToken string) ([]LicenseAssignment, string, error) {
+	var response []LicenseAssignment
 
 	path := fmt.Sprintf(GetSubscriptionLicensesPath, subscriptionId)
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeOAuth2)
