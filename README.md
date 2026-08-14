@@ -61,7 +61,6 @@ baton resources
 `baton-lucidchart` will pull down information about the following resources:
 
 - Users
-- Licenses (opt-in)
 
 # Contributing, Support and Issues
 

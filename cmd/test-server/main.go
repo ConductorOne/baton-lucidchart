@@ -28,14 +28,6 @@ import (
 	"time"
 )
 
-// seedStart and seedEnd are the RFC3339 timestamps used as the start/created and
-// end/renewal dates for seed fixtures.
-const (
-	seedStart = "2026-01-01T00:00:00Z"
-	seedEnd   = "2027-01-01T00:00:00Z"
-	subOneID  = "sub-1"
-)
-
 // user mirrors client.User (pkg/connector/client/models.go).
 type user struct {
 	AccountId int      `json:"accountId"`
@@ -46,48 +38,17 @@ type user struct {
 	Roles     []string `json:"roles"`
 }
 
-// subscription mirrors client.Subscription (pkg/connector/client/models.go).
-type subscription struct {
-	Id           string `json:"id"`
-	LicenseTotal *int64 `json:"licenseTotal"`
-	LicensesUsed int64  `json:"licensesUsed"`
-	Trial        bool   `json:"trial"`
-	Start        string `json:"start"`
-	End          string `json:"end"`
-	Renewal      string `json:"renewal"`
-}
-
-// license mirrors client.LicenseAssignment (pkg/connector/client/models.go).
-type license struct {
-	UserId         int    `json:"userId"`
-	SubscriptionId string `json:"subscriptionId"`
-	Created        string `json:"created"`
-}
-
 type store struct {
-	mu            sync.Mutex
-	users         []user
-	subscriptions []subscription
-	licenses      []license
-	nextID        int
+	mu      sync.Mutex
+	users   []user
+	nextID  int
 }
 
 func newStore() *store {
-	licenseTotal := int64(10)
-	licenseTotal2 := int64(5)
 	return &store{
 		users: []user{
 			{AccountId: 1, Email: "owner@example.com", Name: "Olivia Owner", UserId: 101, Usernames: "owner@example.com", Roles: []string{"admin"}},
 			{AccountId: 1, Email: "editor@example.com", Name: "Eddie Editor", UserId: 102, Usernames: "editor@example.com", Roles: []string{"member"}},
-		},
-		subscriptions: []subscription{
-			{Id: subOneID, LicenseTotal: &licenseTotal, LicensesUsed: 2, Trial: false, Start: seedStart, End: seedEnd, Renewal: seedEnd},
-			{Id: "sub-2", LicenseTotal: &licenseTotal2, LicensesUsed: 1, Trial: false, Start: seedStart, End: seedEnd, Renewal: seedEnd},
-		},
-		licenses: []license{
-			{UserId: 101, SubscriptionId: subOneID, Created: seedStart},
-			{UserId: 102, SubscriptionId: subOneID, Created: "2026-01-02T00:00:00Z"},
-			{UserId: 102, SubscriptionId: "sub-2", Created: "2026-01-03T00:00:00Z"},
 		},
 		nextID: 1000,
 	}
@@ -124,42 +85,6 @@ func (s *store) getUserByID(id string) (user, bool) {
 		}
 	}
 	return user{}, false
-}
-
-// listSubscriptions returns all subscriptions. Used by GET /v1/subscriptions.
-func (s *store) listSubscriptions() []subscription {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]subscription, len(s.subscriptions))
-	copy(out, s.subscriptions)
-	return out
-}
-
-// subscriptionExists reports whether a subscription with the given id exists.
-// Used by GET /v1/subscriptions/{id}/licenses to 404 on an unknown subscription.
-func (s *store) subscriptionExists(id string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, sub := range s.subscriptions {
-		if sub.Id == id {
-			return true
-		}
-	}
-	return false
-}
-
-// listLicensesForSubscription returns the licenses assigned under the given
-// subscription id. Used by GET /v1/subscriptions/{id}/licenses.
-func (s *store) listLicensesForSubscription(subscriptionId string) []license {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []license
-	for _, l := range s.licenses {
-		if l.SubscriptionId == subscriptionId {
-			out = append(out, l)
-		}
-	}
-	return out
 }
 
 // deleteUserByScimID removes the user whose UserId matches the numeric suffix
@@ -242,35 +167,6 @@ func newMux(s *store) *http.ServeMux {
 		}
 		log.Printf("GET /v1/users/%s → email=%s", id, u.Email) //nolint:gosec // test-server: path value is diagnostic only
 		writeJSON(w, http.StatusOK, u)
-	})
-
-	// REST: list subscriptions (GET /v1/subscriptions, OAuth2). Single page
-	// (no Link header) — seeded with two subscriptions so the license resource
-	// type's List produces multiple resources to sync, and StaticEntitlements
-	// per-instance stamping can be verified across them.
-	mux.HandleFunc("GET /v1/subscriptions", func(w http.ResponseWriter, r *http.Request) {
-		if !requireBearer(w, r) {
-			return
-		}
-		writeJSON(w, http.StatusOK, s.listSubscriptions())
-	})
-
-	// REST: list per-subscription license assignments
-	// (GET /v1/subscriptions/{id}/licenses, OAuth2). Used by the license
-	// resource type's Grants to emit one grant per assignment.
-	mux.HandleFunc("GET /v1/subscriptions/{id}/licenses", func(w http.ResponseWriter, r *http.Request) {
-		if !requireBearer(w, r) {
-			return
-		}
-		id := r.PathValue("id")
-		if !s.subscriptionExists(id) {
-			log.Printf("GET /v1/subscriptions/%s/licenses — not found", id) //nolint:gosec // test-server: path value is diagnostic only
-			http.NotFound(w, r)
-			return
-		}
-		licenses := s.listLicensesForSubscription(id)
-		log.Printf("GET /v1/subscriptions/%s/licenses → %d licenses", id, len(licenses)) //nolint:gosec // test-server: path value is diagnostic only
-		writeJSON(w, http.StatusOK, licenses)
 	})
 
 	// REST: create user (POST /users) — parses request body and persists the
