@@ -101,6 +101,29 @@ func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, act
 	return nil, nil
 }
 
+// ScimUserExists reports whether the user still exists, via SCIM GET /Users/{id}.
+// SCIM 404s specifically for absence, which disambiguates REST's overloaded 403.
+// A non-nil error means "unknown" — never treat it as "gone".
+func (c *LucidchartClient) ScimUserExists(ctx context.Context, userID string) (bool, error) {
+	if !c.ScimConfigured() {
+		return false, errScimNotConfigured
+	}
+
+	req, err := c.newScimRequest(ctx, http.MethodGet, fmt.Sprintf(ScimUserPath, scimResourceID(userID)), nil)
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := c.doRequest(ctx, req, nil); err != nil {
+		if IsNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
 // ScimDeleteUser permanently deletes a user via SCIM DELETE /Users/{id}. This
 // is a hard delete; callers should transfer owned content first when it must be
 // retained (see TransferContent).
