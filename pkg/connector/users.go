@@ -212,7 +212,9 @@ func userResource(user client.User) (*v2.Resource, error) {
 	}
 
 	userTraitOptions := []rs.UserTraitOption{
+		rs.WithUserProfile(profile),
 		rs.WithEmail(user.Email, true),
+		rs.WithStatus(status),
 		rs.WithUserLogin(user.Email),
 	}
 

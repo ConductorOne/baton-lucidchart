@@ -15,7 +15,11 @@ runs:
       run: go build -o test-server ./cmd/test-server
       shell: bash
     - name: Start test server
-      run: ./test-server &
+      # Pass the SCIM bearer through so the mock's -scim-token stays in lockstep
+      # with BATON_LUCID_SCIM_TOKEN. The mock requires distinct REST/SCIM tokens;
+      # if these diverge, every SCIM route 401s. Falls back to the mock's own
+      # default when the var is unset (e.g. a fork without repo secrets).
+      run: ./test-server -scim-token "${BATON_LUCID_SCIM_TOKEN:-test-scim-token}" &
       shell: bash
     - name: Wait for test server
       run: |
