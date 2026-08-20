@@ -70,6 +70,10 @@ const (
 	// REST user 1234 is "lucid-1234" (reference/overview-scim, User.id).
 	scimIDPrefix = "lucid-"
 
+	// maxFormBody caps the request body the mock will parse (1 MiB). Guards the
+	// ParseForm read against an unbounded body (gosec G107/decompression-bomb).
+	maxFormBody = 1 << 20
+
 	// lucidPageSize is Lucid's page size for paginated REST endpoints. The docs
 	// state a 200-record default and that a larger requested pageSize is clamped
 	// to 200 (reference-rest).
@@ -429,7 +433,7 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	// rejects what the real endpoint rejects: a permissive token endpoint has
 	// shipped broken grant_type params to production before.
 	mux.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
 		if err := r.ParseForm(); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 			return
