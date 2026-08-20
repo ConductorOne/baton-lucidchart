@@ -13,9 +13,11 @@ var (
 	FolderContentPath                 = "/folders/%s/contents"
 	ListFolderUserCollaboratorsPath   = "/folders/%s/shares/users"
 	ListDocumentUserCollaboratorsPath = "/documents/%s/shares/users"
+	GetFolderUserCollaboratorPath     = "/folders/%s/shares/users/%s"
 	UpsertFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
 	DeleteFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
 
+	GetDocumentUserCollaboratorPath    = "/documents/%s/shares/users/%s"
 	UpsertDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
 	DeleteDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
 )
@@ -112,6 +114,28 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 	return response, nextToken, nil
 }
 
+// GetFolderUserCollaborator fetches a single user's current collaborator role on
+// a folder via GET /folders/{id}/shares/users/{userId}. Lucid returns 404 (mapped
+// to codes.NotFound) when the user is not a direct collaborator, so callers use
+// IsNotFoundError to distinguish "no existing grant" from a real failure.
+func (c *LucidchartClient) GetFolderUserCollaborator(ctx context.Context, folderId, userId string) (*FolderUserCollaboration, error) {
+	var response FolderUserCollaboration
+
+	path := fmt.Sprintf(GetFolderUserCollaboratorPath, folderId, userId)
+
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
 func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, documentId string, pageToken string) ([]DocumentUserCollaboration, string, error) {
 	var response []DocumentUserCollaboration
 
@@ -130,4 +154,27 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 	}
 
 	return response, nextToken, nil
+}
+
+// GetDocumentUserCollaborator fetches a single user's current collaborator role
+// on a document via GET /documents/{id}/shares/users/{userId}. Lucid returns 404
+// (mapped to codes.NotFound) when the user is not a direct collaborator, so
+// callers use IsNotFoundError to distinguish "no existing grant" from a real
+// failure.
+func (c *LucidchartClient) GetDocumentUserCollaborator(ctx context.Context, documentId, userId string) (*DocumentUserCollaboration, error) {
+	var response DocumentUserCollaboration
+
+	path := fmt.Sprintf(GetDocumentUserCollaboratorPath, documentId, userId)
+
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = c.doRequest(ctx, req, &response)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response, nil
 }

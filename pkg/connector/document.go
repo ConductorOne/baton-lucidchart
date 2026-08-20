@@ -153,8 +153,28 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 
 		role := splitted[1]
 
+		// Lucid collaborator roles are single-slot per user per object: the PUT
+		// upsert replaces the user's role rather than adding to it, and returns
+		// 200/201 (never 409 Conflict), so a re-grant of a role the user already
+		// holds is indistinguishable from a state change by status code alone.
+		// Read the user's current role first so we can report GrantAlreadyExists
+		// on a true no-op, keeping Grant symmetric with Revoke's
+		// GrantAlreadyRevoked. A 404 here means the user is not yet a collaborator.
+		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
+		if err != nil && !client.IsNotFoundError(err) {
+			return nil, nil, err
+		}
+		if err == nil && current.Role == role {
+			return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
+		}
+
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
 		if err != nil {
+			// Defensive: Lucid does not return 409 on this path today, but if it
+			// ever does, treat "already exists" as an idempotent success.
+			if client.IsAlreadyExistsError(err) {
+				return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
+			}
 			return nil, nil, err
 		}
 
