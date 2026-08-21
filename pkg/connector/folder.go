@@ -158,24 +158,16 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 		// on a failure the upsert itself reports.
 		current, err := o.client.GetFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
-			// A 404 is the expected "user is not yet a collaborator" case, so it
-			// stays at Debug; any other read failure (403/405/500, cancelled
-			// context) is unexpected on this surface and gets Warn so a tenant
-			// where the pre-check is permanently degraded still emits a signal.
-			// Either way we fall through to the authoritative upsert.
-			if client.IsNotFoundError(err) {
-				l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
-					zap.String("folder_id", folderId),
-					zap.String("user_id", userId),
-					zap.Error(err),
-				)
-			} else {
-				l.Warn("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
-					zap.String("folder_id", folderId),
-					zap.String("user_id", userId),
-					zap.Error(err),
-				)
-			}
+			// Any read failure (404 "not yet a collaborator", or an unexpected
+			// 403/405/500/cancelled context) is logged at Debug and we fall
+			// through to the authoritative upsert. This can recur on every grant
+			// for a tenant where the pre-check GET is permanently unavailable, so
+			// it must stay at Debug to avoid production log noise.
+			l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+				zap.String("folder_id", folderId),
+				zap.String("user_id", userId),
+				zap.Error(err),
+			)
 		} else if current.Role == role {
 			return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
