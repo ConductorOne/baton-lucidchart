@@ -142,6 +142,7 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, opt
 }
 
 func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	if resource.Id.ResourceType == userResourceType.Id {
 		userId := resource.Id.Resource
 		documentId := entitlement.Resource.Id.Resource
@@ -160,11 +161,21 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		// Read the user's current role first so we can report GrantAlreadyExists
 		// on a true no-op, keeping Grant symmetric with Revoke's
 		// GrantAlreadyRevoked. A 404 here means the user is not yet a collaborator.
+		//
+		// The pre-check is strictly an optimization for the no-op case, so treat
+		// it as best-effort: on ANY read error (404, but also 403 PermissionDenied
+		// — observed on this collaborator surface elsewhere — 405 if a tenant does
+		// not expose the single-share GET, or a cancelled context) we log and fall
+		// through to the upsert, which is the authoritative operation. We only bail
+		// on a failure the upsert itself reports.
 		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
-		if err != nil && !client.IsNotFoundError(err) {
-			return nil, nil, err
-		}
-		if err == nil && current.Role == role {
+		if err != nil {
+			l.Debug("baton-lucidchart: document collaborator pre-check GET failed; falling through to upsert",
+				zap.String("document_id", documentId),
+				zap.String("user_id", userId),
+				zap.Error(err),
+			)
+		} else if current.Role == role {
 			return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
 

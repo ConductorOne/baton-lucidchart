@@ -13,13 +13,12 @@ var (
 	FolderContentPath                 = "/folders/%s/contents"
 	ListFolderUserCollaboratorsPath   = "/folders/%s/shares/users"
 	ListDocumentUserCollaboratorsPath = "/documents/%s/shares/users"
-	GetFolderUserCollaboratorPath     = "/folders/%s/shares/users/%s"
-	UpsertFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
-	DeleteFolderUserCollaboratorPath  = "/folders/%s/shares/users/%s"
 
-	GetDocumentUserCollaboratorPath    = "/documents/%s/shares/users/%s"
-	UpsertDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
-	DeleteDocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
+	// Single-collaborator paths are shared across the GET (read current role),
+	// PUT (upsert role), and DELETE (revoke) operations — the HTTP method at
+	// each call site conveys the verb, so one constant per resource suffices.
+	FolderUserCollaboratorPath   = "/folders/%s/shares/users/%s"
+	DocumentUserCollaboratorPath = "/documents/%s/shares/users/%s"
 )
 
 // GetUser fetches a single user by their numeric REST user ID via
@@ -121,7 +120,7 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 func (c *LucidchartClient) GetFolderUserCollaborator(ctx context.Context, folderId, userId string) (*FolderUserCollaboration, error) {
 	var response FolderUserCollaboration
 
-	path := fmt.Sprintf(GetFolderUserCollaboratorPath, folderId, userId)
+	path := fmt.Sprintf(FolderUserCollaboratorPath, folderId, userId)
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
@@ -164,7 +163,7 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 func (c *LucidchartClient) GetDocumentUserCollaborator(ctx context.Context, documentId, userId string) (*DocumentUserCollaboration, error) {
 	var response DocumentUserCollaboration
 
-	path := fmt.Sprintf(GetDocumentUserCollaboratorPath, documentId, userId)
+	path := fmt.Sprintf(DocumentUserCollaboratorPath, documentId, userId)
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
 	if err != nil {

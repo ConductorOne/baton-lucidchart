@@ -23,6 +23,19 @@ type collaboratorTestServer struct {
 	server   *httptest.Server
 	roles    map[string]string // userId -> current role
 	putCalls int64
+
+	// Fault-injection overrides (0 = disabled). Stored as int64 and accessed
+	// atomically because they are read in the handler goroutine while the test
+	// goroutine may still be in the middle of a request.
+	getStatus int64 // when non-zero, the single-collaborator GET returns this status
+	putStatus int64 // when non-zero, the upsert PUT returns this status
+}
+
+// putCallCount returns the number of times the upsert PUT was invoked. Reads go
+// through atomic.LoadInt64 to pair with the atomic.AddInt64 in the PUT handler
+// goroutine.
+func (cts *collaboratorTestServer) putCallCount() int64 {
+	return atomic.LoadInt64(&cts.putCalls)
 }
 
 func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServer {
@@ -36,6 +49,12 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 	putPattern := "PUT /" + kind + "/{id}/shares/users/{uid}"
 
 	mux.HandleFunc(getPattern, func(w http.ResponseWriter, r *http.Request) {
+		if s := atomic.LoadInt64(&cts.getStatus); s != 0 {
+			// Fault injection: simulate a non-404 read failure (e.g. 403/500).
+			w.WriteHeader(int(s))
+			_, _ = w.Write([]byte(`{"code":` + strconv.FormatInt(s, 10) + `,"message":"injected"}`))
+			return
+		}
 		uid := r.PathValue("uid")
 		role, ok := cts.roles[uid]
 		if !ok {
@@ -55,6 +74,13 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 			Role string `json:"role"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
+
+		if s := atomic.LoadInt64(&cts.putStatus); s != 0 {
+			// Fault injection: simulate the upsert itself failing (e.g. 409).
+			w.WriteHeader(int(s))
+			_, _ = w.Write([]byte(`{"code":` + strconv.FormatInt(s, 10) + `,"message":"injected"}`))
+			return
+		}
 
 		cts.roles[uid] = body.Role
 		cts.writeCollaborator(w, kind, r.PathValue("id"), uid, body.Role)
@@ -123,7 +149,7 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, grants, 1)
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(1), cts.putCalls)
+		require.Equal(t, int64(1), cts.putCallCount())
 	})
 
 	t.Run("re-grant of same role returns already-exists and skips upsert", func(t *testing.T) {
@@ -135,7 +161,7 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, grants)
 		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(0), cts.putCalls, "no-op re-grant must not touch upstream state")
+		require.Equal(t, int64(0), cts.putCallCount(), "no-op re-grant must not touch upstream state")
 	})
 
 	t.Run("role change is not treated as already-exists", func(t *testing.T) {
@@ -147,7 +173,36 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, grants, 1)
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(1), cts.putCalls)
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	// A non-404 read failure on the pre-check GET (403 PermissionDenied observed
+	// on this surface, or 500) must not abort the grant: the upsert is
+	// authoritative, so the grant should still succeed.
+	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run("pre-check GET failure falls through to successful upsert", func(t *testing.T) {
+			cts := newCollaboratorTestServer(t, "folders")
+			cts.getStatus = getStatus
+			b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+			grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+			require.NoError(t, err, "GET %d must not abort the grant", getStatus)
+			require.Len(t, grants, 1)
+			require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+			require.Equal(t, int64(1), cts.putCallCount(), "upsert must still run after a failed pre-check")
+		})
+	}
+
+	t.Run("upsert 409 conflict is treated as already-exists", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.putStatus = http.StatusConflict
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
 	})
 }
 
@@ -162,7 +217,7 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, grants, 1)
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(1), cts.putCalls)
+		require.Equal(t, int64(1), cts.putCallCount())
 	})
 
 	t.Run("re-grant of same role returns already-exists and skips upsert", func(t *testing.T) {
@@ -174,7 +229,7 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, grants)
 		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(0), cts.putCalls)
+		require.Equal(t, int64(0), cts.putCallCount())
 	})
 
 	t.Run("role change is not treated as already-exists", func(t *testing.T) {
@@ -186,6 +241,35 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, grants, 1)
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Equal(t, int64(1), cts.putCalls)
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	// A non-404 read failure on the pre-check GET (403 PermissionDenied observed
+	// on this surface, or 500) must not abort the grant: the upsert is
+	// authoritative, so the grant should still succeed.
+	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run("pre-check GET failure falls through to successful upsert", func(t *testing.T) {
+			cts := newCollaboratorTestServer(t, "documents")
+			cts.getStatus = getStatus
+			b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+			grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+			require.NoError(t, err, "GET %d must not abort the grant", getStatus)
+			require.Len(t, grants, 1)
+			require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+			require.Equal(t, int64(1), cts.putCallCount(), "upsert must still run after a failed pre-check")
+		})
+	}
+
+	t.Run("upsert 409 conflict is treated as already-exists", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		cts.putStatus = http.StatusConflict
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
 	})
 }
