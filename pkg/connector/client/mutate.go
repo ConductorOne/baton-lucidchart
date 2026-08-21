@@ -9,7 +9,7 @@ import (
 func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, folderId, userId string, role string) (*FolderUserCollaboration, error) {
 	var response FolderUserCollaboration
 
-	path := fmt.Sprintf(UpsertFolderUserCollaboratorPath, folderId, userId)
+	path := fmt.Sprintf(FolderUserCollaboratorPath, folderId, userId)
 
 	body := struct {
 		Role string `json:"role"`
@@ -30,7 +30,7 @@ func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, fol
 }
 
 func (c *LucidchartClient) DeleteFolderUserCollaborator(ctx context.Context, folderId, userId string) error {
-	path := fmt.Sprintf(DeleteFolderUserCollaboratorPath, folderId, userId)
+	path := fmt.Sprintf(FolderUserCollaboratorPath, folderId, userId)
 
 	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
@@ -47,7 +47,7 @@ func (c *LucidchartClient) DeleteFolderUserCollaborator(ctx context.Context, fol
 func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, documentId, userId string, role string) (*DocumentUserCollaboration, error) {
 	var response DocumentUserCollaboration
 
-	path := fmt.Sprintf(UpsertDocumentUserCollaboratorPath, documentId, userId)
+	path := fmt.Sprintf(DocumentUserCollaboratorPath, documentId, userId)
 
 	body := struct {
 		Role string `json:"role"`
@@ -68,7 +68,7 @@ func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, d
 }
 
 func (c *LucidchartClient) DeleteDocumentUserCollaborator(ctx context.Context, documentId, userId string) error {
-	path := fmt.Sprintf(DeleteDocumentUserCollaboratorPath, documentId, userId)
+	path := fmt.Sprintf(DocumentUserCollaboratorPath, documentId, userId)
 
 	req, err := c.newRequest(ctx, http.MethodDelete, path, nil, LucidAuthTypeApiKey)
 	if err != nil {
