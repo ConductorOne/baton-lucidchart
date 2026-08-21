@@ -74,6 +74,11 @@ const (
 	// ParseForm read against an unbounded body (gosec G107/decompression-bomb).
 	maxFormBody = 1 << 20
 
+	// maxSeedUsers caps POST /_test/users?count= so a mistyped count returns a
+	// 400 instead of OOMing the mock in makeslice. Well above any real
+	// pagination-boundary run (PAG-03 exercises a few thousand).
+	maxSeedUsers = 100_000
+
 	// lucidPageSize is Lucid's page size for paginated REST endpoints. The docs
 	// state a 200-record default and that a larger requested pageSize is clamped
 	// to 200 (reference-rest).
@@ -415,8 +420,10 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	// runs without restarting the process.
 	mux.HandleFunc("POST /_test/users", func(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(r.URL.Query().Get("count"))
-		if err != nil || n < 0 {
-			http.Error(w, "count must be a non-negative integer", http.StatusBadRequest)
+		// Cap count so a fat-fingered request fails loudly with a 400 rather than
+		// OOMing the mock in makeslice — the value reaches seedUsers unvalidated.
+		if err != nil || n < 0 || n > maxSeedUsers {
+			http.Error(w, fmt.Sprintf("count must be an integer in [0, %d]", maxSeedUsers), http.StatusBadRequest)
 			return
 		}
 		s.seedUsers(n)

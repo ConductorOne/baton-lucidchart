@@ -96,6 +96,8 @@ If you want to use the Lucidchart connector to provision accounts, give the toke
    If you also want C1 to transfer a deleted user's documents to another user before removing the account, add the `account.user.transfercontent` scope. Without it, Delete calls to `POST /v1/transferUserContent` will return 403.
 
    Note: if the user's REST record is already gone when deletion runs (GetUser returns 404), the content transfer is skipped and the SCIM delete proceeds — this is intentional idempotent retry behavior.
+
+   If the REST record instead returns 403 (Lucid answers 403 both for "not permitted" and "does not exist"), C1 probes SCIM to disambiguate: if SCIM confirms the user is gone the delete proceeds, but if the user still exists and their email could not be read for the transfer, C1 refuses the delete with a `FailedPrecondition` error rather than losing their documents — grant the `account.user:readonly` scope so the email can be read. A raw SCIM 409 (the user is an account owner or default document owner and cannot be deleted) also surfaces as `FailedPrecondition` carrying Lucid's reason.
 </Step>
 <Step>
 Carefully copy and save the **refresh token** included in the token response.
