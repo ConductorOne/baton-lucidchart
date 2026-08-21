@@ -1,0 +1,79 @@
+package connector
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"testing"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/stretchr/testify/require"
+)
+
+func TestFolderGrantIdempotency(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("new grant returns no already-exists annotation and calls upsert", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	t.Run("re-grant of same role returns already-exists and skips upsert", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "edit" // user already holds exactly this role
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(0), cts.putCallCount(), "no-op re-grant must not touch upstream state")
+	})
+
+	t.Run("role change is not treated as already-exists", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "view" // user holds a different role
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	// A non-404 read failure on the pre-check GET (403 PermissionDenied observed
+	// on this surface, or 500) must not abort the grant: the upsert is
+	// authoritative, so the grant should still succeed.
+	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run("pre-check GET "+strconv.FormatInt(getStatus, 10)+" falls through to successful upsert", func(t *testing.T) {
+			cts := newCollaboratorTestServer(t, "folders")
+			cts.getStatus = getStatus
+			b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+			grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+			require.NoError(t, err, "GET %d must not abort the grant", getStatus)
+			require.Len(t, grants, 1)
+			require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+			require.Equal(t, int64(1), cts.putCallCount(), "upsert must still run after a failed pre-check")
+		})
+	}
+
+	t.Run("upsert 409 conflict is treated as already-exists", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.putStatus = http.StatusConflict
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+}
