@@ -24,9 +24,9 @@ type collaboratorTestServer struct {
 	roles    map[string]string // userId -> current role
 	putCalls int64
 
-	// Fault-injection overrides (0 = disabled). Stored as int64 and accessed
-	// atomically because they are read in the handler goroutine while the test
-	// goroutine may still be in the middle of a request.
+	// Fault-injection overrides (0 = disabled). The handler goroutine reads them
+	// via atomic.LoadInt64; the tests set them with a plain assignment during
+	// setup, before any request is issued, so there is no concurrent access.
 	getStatus int64 // when non-zero, the single-collaborator GET returns this status
 	putStatus int64 // when non-zero, the upsert PUT returns this status
 }
@@ -180,7 +180,7 @@ func TestFolderGrantIdempotency(t *testing.T) {
 	// on this surface, or 500) must not abort the grant: the upsert is
 	// authoritative, so the grant should still succeed.
 	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
-		t.Run("pre-check GET failure falls through to successful upsert", func(t *testing.T) {
+		t.Run("pre-check GET "+strconv.FormatInt(getStatus, 10)+" falls through to successful upsert", func(t *testing.T) {
 			cts := newCollaboratorTestServer(t, "folders")
 			cts.getStatus = getStatus
 			b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
@@ -248,7 +248,7 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 	// on this surface, or 500) must not abort the grant: the upsert is
 	// authoritative, so the grant should still succeed.
 	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
-		t.Run("pre-check GET failure falls through to successful upsert", func(t *testing.T) {
+		t.Run("pre-check GET "+strconv.FormatInt(getStatus, 10)+" falls through to successful upsert", func(t *testing.T) {
 			cts := newCollaboratorTestServer(t, "documents")
 			cts.getStatus = getStatus
 			b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
