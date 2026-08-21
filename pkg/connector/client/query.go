@@ -115,8 +115,8 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 
 // GetFolderUserCollaborator fetches a single user's current collaborator role on
 // a folder via GET /folders/{id}/shares/users/{userId}. Lucid returns 404 (mapped
-// to codes.NotFound) when the user is not a direct collaborator, so callers use
-// IsNotFoundError to distinguish "no existing grant" from a real failure.
+// to codes.NotFound) when the user is not a direct collaborator. Callers treat
+// this read as best-effort and fall through to the upsert on any error.
 func (c *LucidchartClient) GetFolderUserCollaborator(ctx context.Context, folderId, userId string) (*FolderUserCollaboration, error) {
 	var response FolderUserCollaboration
 
@@ -157,9 +157,8 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 
 // GetDocumentUserCollaborator fetches a single user's current collaborator role
 // on a document via GET /documents/{id}/shares/users/{userId}. Lucid returns 404
-// (mapped to codes.NotFound) when the user is not a direct collaborator, so
-// callers use IsNotFoundError to distinguish "no existing grant" from a real
-// failure.
+// (mapped to codes.NotFound) when the user is not a direct collaborator. Callers
+// treat this read as best-effort and fall through to the upsert on any error.
 func (c *LucidchartClient) GetDocumentUserCollaborator(ctx context.Context, documentId, userId string) (*DocumentUserCollaboration, error) {
 	var response DocumentUserCollaboration
 
