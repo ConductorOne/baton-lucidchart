@@ -65,15 +65,40 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		})
 	}
 
-	t.Run("upsert 409 conflict is treated as already-exists", func(t *testing.T) {
+	t.Run("upsert failure propagates as an error", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "documents")
-		cts.putStatus = http.StatusConflict
+		cts.putStatus = http.StatusInternalServerError
 		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
 
 		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.Nil(t, grants)
-		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Nil(t, annos)
 		require.Equal(t, int64(1), cts.putCallCount())
+	})
+}
+
+func TestDocumentRevoke(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("revoke of existing collaborator deletes upstream and returns no annotation", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		cts.roles["200"] = "comment"
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("200", documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.False(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
+		_, ok := cts.getRole("200")
+		require.False(t, ok, "collaborator must be removed after revoke")
+	})
+
+	t.Run("revoke of missing collaborator returns already-revoked", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("200", documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
 	})
 }
