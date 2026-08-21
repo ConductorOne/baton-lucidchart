@@ -163,15 +163,19 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// context) is unexpected on this surface and gets Warn so a tenant
 			// where the pre-check is permanently degraded still emits a signal.
 			// Either way we fall through to the authoritative upsert.
-			logPreCheck := l.Debug
-			if !client.IsNotFoundError(err) {
-				logPreCheck = l.Warn
+			if client.IsNotFoundError(err) {
+				l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			} else {
+				l.Warn("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
 			}
-			logPreCheck("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
-				zap.String("folder_id", folderId),
-				zap.String("user_id", userId),
-				zap.Error(err),
-			)
 		} else if current.Role == role {
 			return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
