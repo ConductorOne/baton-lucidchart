@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -16,11 +17,13 @@ import (
 
 // collaboratorTestServer is a stateful mock of the Lucid folder/document
 // collaborator surface. It serves the single-collaborator GET (404 when the user
-// is not a collaborator, 200 + role when it is) and the PUT upsert, and records
-// how many times the upsert was called so tests can prove a no-op re-grant does
-// not touch upstream state.
+// is not a collaborator, 200 + role when it is), the PUT upsert, and the DELETE
+// (404 when the user is not a collaborator), and records how many times the
+// upsert was called so tests can prove a no-op re-grant does not touch upstream
+// state.
 type collaboratorTestServer struct {
 	server   *httptest.Server
+	mu       sync.Mutex        // guards roles
 	roles    map[string]string // userId -> current role
 	putCalls int64
 
@@ -38,6 +41,29 @@ func (cts *collaboratorTestServer) putCallCount() int64 {
 	return atomic.LoadInt64(&cts.putCalls)
 }
 
+// getRole, setRole, and deleteRole guard the roles map behind mu so concurrent
+// handler goroutines are safe under -race.
+func (cts *collaboratorTestServer) getRole(uid string) (string, bool) {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	role, ok := cts.roles[uid]
+	return role, ok
+}
+
+func (cts *collaboratorTestServer) setRole(uid, role string) {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	cts.roles[uid] = role
+}
+
+func (cts *collaboratorTestServer) deleteRole(uid string) bool {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	_, ok := cts.roles[uid]
+	delete(cts.roles, uid)
+	return ok
+}
+
 func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServer {
 	t.Helper()
 
@@ -47,6 +73,7 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 
 	getPattern := "GET /" + kind + "/{id}/shares/users/{uid}"
 	putPattern := "PUT /" + kind + "/{id}/shares/users/{uid}"
+	deletePattern := "DELETE /" + kind + "/{id}/shares/users/{uid}"
 
 	mux.HandleFunc(getPattern, func(w http.ResponseWriter, r *http.Request) {
 		if s := atomic.LoadInt64(&cts.getStatus); s != 0 {
@@ -56,7 +83,7 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 			return
 		}
 		uid := r.PathValue("uid")
-		role, ok := cts.roles[uid]
+		role, ok := cts.getRole(uid)
 		if !ok {
 			// Lucid returns 404 when the user is not a direct collaborator.
 			w.WriteHeader(http.StatusNotFound)
@@ -82,8 +109,19 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 			return
 		}
 
-		cts.roles[uid] = body.Role
+		cts.setRole(uid, body.Role)
 		cts.writeCollaborator(w, kind, r.PathValue("id"), uid, body.Role)
+	})
+
+	mux.HandleFunc(deletePattern, func(w http.ResponseWriter, r *http.Request) {
+		uid := r.PathValue("uid")
+		if !cts.deleteRole(uid) {
+			// Lucid returns 404 when the user is not a direct collaborator.
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":404,"message":"not found"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	cts.server = httptest.NewServer(mux)
@@ -135,5 +173,12 @@ func objectEntitlement(resourceType, objectID, role string) *v2.Entitlement {
 		Resource: &v2.Resource{
 			Id: &v2.ResourceId{ResourceType: resourceType, Resource: objectID},
 		},
+	}
+}
+
+func userGrant(userID, resourceType, objectID, role string) *v2.Grant {
+	return &v2.Grant{
+		Principal:   userPrincipal(userID),
+		Entitlement: objectEntitlement(resourceType, objectID, role),
 	}
 }

@@ -65,15 +65,40 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		})
 	}
 
-	t.Run("upsert 409 conflict is treated as already-exists", func(t *testing.T) {
+	t.Run("upsert failure propagates as an error", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "folders")
-		cts.putStatus = http.StatusConflict
+		cts.putStatus = http.StatusInternalServerError
 		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
 
 		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.Nil(t, grants)
-		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Nil(t, annos)
 		require.Equal(t, int64(1), cts.putCallCount())
+	})
+}
+
+func TestFolderRevoke(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("revoke of existing collaborator deletes upstream and returns no annotation", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "edit"
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("100", folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.False(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
+		_, ok := cts.getRole("100")
+		require.False(t, ok, "collaborator must be removed after revoke")
+	})
+
+	t.Run("revoke of missing collaborator returns already-revoked", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("100", folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
 	})
 }

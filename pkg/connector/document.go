@@ -154,27 +154,11 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 
 		role := splitted[1]
 
-		// Lucid collaborator roles are single-slot per user per object: the PUT
-		// upsert replaces the user's role rather than adding to it, and returns
-		// 200/201 (never 409 Conflict), so a re-grant of a role the user already
-		// holds is indistinguishable from a state change by status code alone.
-		// Read the user's current role first so we can report GrantAlreadyExists
-		// on a true no-op, keeping Grant symmetric with Revoke's
-		// GrantAlreadyRevoked. A 404 here means the user is not yet a collaborator.
-		//
-		// The pre-check is strictly an optimization for the no-op case, so treat
-		// it as best-effort: on ANY read error (404, but also 403 PermissionDenied
-		// — observed on this collaborator surface elsewhere — 405 if a tenant does
-		// not expose the single-share GET, or a cancelled context) we log and fall
-		// through to the upsert, which is the authoritative operation. We only bail
-		// on a failure the upsert itself reports.
+		// Pre-check the current role so a no-op re-grant reports GrantAlreadyExists.
+		// Best-effort: any read error falls through to the authoritative upsert.
 		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
-			// Any read failure (404 "not yet a collaborator", or an unexpected
-			// 403/405/500/cancelled context) is logged at Debug and we fall
-			// through to the authoritative upsert. This can recur on every grant
-			// for a tenant where the pre-check GET is permanently unavailable, so
-			// it must stay at Debug to avoid production log noise.
+			// Debug, not Warn: this can recur on every grant for tenants without the GET.
 			l.Debug("baton-lucidchart: document collaborator pre-check GET failed; falling through to upsert",
 				zap.String("document_id", documentId),
 				zap.String("user_id", userId),
@@ -186,11 +170,6 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
 		if err != nil {
-			// Defensive: Lucid does not return 409 on this path today, but if it
-			// ever does, treat "already exists" as an idempotent success.
-			if client.IsAlreadyExistsError(err) {
-				return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
-			}
 			return nil, nil, err
 		}
 
@@ -217,11 +196,8 @@ func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 		userId := grant.Principal.Id.Resource
 		documentId := grant.Entitlement.Resource.Id.Resource
 
-		// Revoke here means plain "remove membership": it deletes the user's
-		// collaborator record on the document entirely (not a reset-to-default or
-		// user-delete). If the collaborator is already gone, Lucid returns 404,
-		// which the client maps to codes.NotFound; we treat that as an idempotent
-		// success (GrantAlreadyRevoked), mirroring Grant's GrantAlreadyExists.
+		// Remove the user's collaborator record entirely. A 404 (already gone) is
+		// an idempotent success (GrantAlreadyRevoked).
 		err := o.client.DeleteDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
 			if client.IsNotFoundError(err) {
