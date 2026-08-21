@@ -308,8 +308,14 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		// REST 403 is ambiguous ("gone" or "not permitted"), so confirm with SCIM.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil {
-			return fmt.Errorf(
-				"baton-lucidchart: could not resolve user %s for content transfer (%w) and could not confirm whether they still exist: %w",
+			// Neither source could tell us whether the user still exists, so we
+			// genuinely cannot decide if deleting is safe. Return codes.Unknown
+			// deliberately: the gRPC code here is a chosen "indeterminate"
+			// signal, not whatever errors.As happens to surface first from two
+			// %w-wrapped chains. Both underlying errors are kept verbatim in the
+			// detail text so no diagnostic information is lost.
+			return status.Errorf(codes.Unknown,
+				"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
 				userID, err, existsErr)
 		}
 		if exists {

@@ -110,6 +110,26 @@ func TestDelete_RestForbiddenButUserExists_RefusesToDelete(t *testing.T) {
 	require.False(t, routes.scimDelete, "must not delete when content could not be transferred")
 }
 
+// When REST answers an ambiguous 403 and the SCIM existence probe itself fails,
+// the connector cannot tell whether the user is gone or merely unreadable, so it
+// must abort rather than risk either destroying un-transferred content or
+// deleting a user it never confirmed. The delete must surface an error with a
+// deliberate, indeterminate gRPC code (codes.Unknown) — not one that depends on
+// errors.As DFS order across two wrapped chains — and SCIM DELETE must never run.
+func TestDelete_RestForbiddenAndScimProbeFails_AbortsWithoutDeleting(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusForbidden, http.StatusInternalServerError, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.Error(t, err)
+	require.Equal(t, codes.Unknown, status.Code(err))
+	require.True(t, routes.getUser, "REST lookup should be attempted")
+	require.True(t, routes.scimGet, "SCIM must be probed to disambiguate the 403")
+	require.False(t, routes.transfer, "no transfer when the email could not be resolved")
+	require.False(t, routes.scimDelete, "delete must not run when existence could not be confirmed")
+}
+
 func TestDelete_GetUserNotFoundWithContentTransfer_SkipsTransferButRunsScimDelete(t *testing.T) {
 	routes := &deleteRoutes{}
 	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusNotFound, http.StatusNoContent)
