@@ -281,13 +281,20 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // transferContentBeforeDelete moves the leaving user's documents to the
 // configured recipient, resolving their email from the REST record first.
 //
-// A definite REST 404 means the user is already gone: skip the transfer and let
-// the SCIM delete (which treats its own 404 as success) run — no SCIM probe, so
-// a probe outage can't block an otherwise-valid delete. REST answers 403 both
-// for "gone" and for "not permitted", so only there is absence ambiguous; we ask
-// SCIM (which 404s specifically for absence) before deciding, because guessing
-// would mean either deleting content we failed to move or breaking retry
-// idempotency.
+// Lucid's GET /v1/users/{id} documents only 200 and 403; 403 is explicitly the
+// "does not belong to the authenticated account or does not exist" response, and
+// 404 is not a documented response at all. So neither a 403 nor an
+// (undocumented) 404 proves the user is actually gone — both are ambiguous as to
+// absence, and treating either as "gone" outright risks hard-deleting a user
+// whose content we were told to retain. In both cases we ask SCIM (which 404s
+// specifically for absence) before deciding, and refuse the delete only when
+// SCIM affirmatively reports the user still present.
+//
+// The two paths differ only in how they treat a SCIM probe error: on the
+// documented-but-overloaded 403 an unresolved probe is genuinely indeterminate
+// and surfaces as codes.Unknown, while on the undocumented 404 a probe outage is
+// treated as "proceed" so it can't block a delete (preserving the original rule
+// that a probe outage must not block an otherwise-valid delete).
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -298,10 +305,29 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		return nil
 
 	case client.IsNotFoundError(err):
-		// REST gave a definite 404: the user is gone as far as content transfer
-		// is concerned. Proceed to the SCIM delete without probing SCIM first, so
-		// a probe failure (403/405/501 on a tenant without SCIM user GET, or a
-		// transient 5xx) cannot abort a delete REST already told us is safe.
+		// REST returned a 404, which Lucid does not document for GET
+		// /v1/users/{id} — that endpoint only documents 200 and 403, and 403 is
+		// its "does not exist" response. A 404 is therefore of unknown meaning,
+		// so we can't assume the user is gone: if it can ever occur for a user
+		// who still exists, proceeding straight to the hard SCIM delete would
+		// destroy content the operator asked to retain. Probe SCIM (which 404s
+		// specifically for absence) and refuse only when it affirmatively
+		// reports the user still present. Any probe error is treated as
+		// "proceed" so a probe outage still cannot block an otherwise-valid
+		// delete.
+		exists, existsErr := o.client.ScimUserExists(ctx, userID)
+		if existsErr == nil && exists {
+			// Present per SCIM but unreadable over REST: deleting would destroy
+			// content we could not transfer.
+			return status.Errorf(codes.FailedPrecondition,
+				"baton-lucidchart: user %s could not be read for content transfer (undocumented REST 404: %v) "+
+					"but SCIM reports they still exist; refusing to delete and lose their documents — "+
+					"check that the OAuth token carries account.user:readonly and that the user is on this account",
+				userID, err)
+		}
+		// Either SCIM confirms the user is gone, or the probe itself failed; in
+		// both cases proceed to the SCIM delete (which treats its own 404 as
+		// success), so a probe outage cannot abort a valid delete.
 		return nil
 
 	case client.IsPermissionDeniedError(err):

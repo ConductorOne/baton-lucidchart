@@ -130,15 +130,52 @@ func TestDelete_RestForbiddenAndScimProbeFails_AbortsWithoutDeleting(t *testing.
 	require.False(t, routes.scimDelete, "delete must not run when existence could not be confirmed")
 }
 
-func TestDelete_GetUserNotFoundWithContentTransfer_SkipsTransferButRunsScimDelete(t *testing.T) {
+// Lucid does not document a 404 for GET /v1/users/{id} (only 200 and 403), so a
+// 404 is of unknown meaning and must not be trusted as "gone" on its own. When
+// SCIM confirms the user really is absent, the delete proceeds so retries of an
+// already-processed deprovision converge.
+func TestDelete_GetUserNotFoundAndScimUserGone_ProbesThenRunsScimDelete(t *testing.T) {
 	routes := &deleteRoutes{}
 	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusNotFound, http.StatusNoContent)
 	defer srv.Close()
 
 	err := deleteUser(t, srv, "recipient@example.com")
 	require.NoError(t, err)
+	require.True(t, routes.getUser, "REST lookup should be attempted")
+	require.True(t, routes.scimGet, "an undocumented 404 must be disambiguated via SCIM")
 	require.False(t, routes.transfer, "transfer must be skipped when the user is not found")
-	require.True(t, routes.scimDelete)
+	require.True(t, routes.scimDelete, "delete must run once SCIM confirms the user is gone")
+}
+
+// An undocumented REST 404 with the user still present per SCIM is not an
+// absence: deleting would destroy the content the operator asked to retain, so
+// Delete must refuse and never call SCIM DELETE.
+func TestDelete_GetUserNotFoundButScimUserExists_RefusesToDelete(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusOK, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.True(t, routes.scimGet, "an undocumented 404 must be disambiguated via SCIM")
+	require.False(t, routes.transfer)
+	require.False(t, routes.scimDelete, "must not delete a user SCIM says still exists")
+}
+
+// On the undocumented 404 path a SCIM probe outage must NOT block the delete:
+// the original rule is that a probe failure cannot abort an otherwise-valid
+// delete. Unlike the ambiguous-403 path, a failed probe here means "proceed".
+func TestDelete_GetUserNotFoundAndScimProbeFails_ProceedsToScimDelete(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusInternalServerError, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.NoError(t, err)
+	require.True(t, routes.scimGet, "an undocumented 404 must attempt the SCIM probe")
+	require.False(t, routes.transfer)
+	require.True(t, routes.scimDelete, "a probe outage must not block an otherwise-valid delete")
 }
 
 func TestDelete_HappyPath_TransfersThenDeletes(t *testing.T) {
