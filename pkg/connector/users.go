@@ -358,8 +358,8 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 					ctxErr = existsErr
 				}
 				return fmt.Errorf(
-					"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %v): %w",
-					userID, err, ctxErr)
+					"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
+					userID, err.Error(), ctxErr)
 			case status.Code(existsErr) == codes.ResourceExhausted ||
 				status.Code(existsErr) == codes.Unavailable:
 				// A transient probe failure — rate-limited (429) or an upstream 5xx,
