@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -205,9 +202,14 @@ func (o *folderBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotation
 		userId := grant.Principal.Id.Resource
 		folderId := grant.Entitlement.Resource.Id.Resource
 
+		// Revoke here means plain "remove membership": it deletes the user's
+		// collaborator record on the folder entirely (not a reset-to-default or
+		// user-delete). If the collaborator is already gone, Lucid returns 404,
+		// which the client maps to codes.NotFound; we treat that as an idempotent
+		// success (GrantAlreadyRevoked), mirroring Grant's GrantAlreadyExists.
 		err := o.client.DeleteFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
-			if status.Code(err) == codes.NotFound {
+			if client.IsNotFoundError(err) {
 				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 			}
 			return nil, err

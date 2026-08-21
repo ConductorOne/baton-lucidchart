@@ -217,9 +217,14 @@ func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 		userId := grant.Principal.Id.Resource
 		documentId := grant.Entitlement.Resource.Id.Resource
 
+		// Revoke here means plain "remove membership": it deletes the user's
+		// collaborator record on the document entirely (not a reset-to-default or
+		// user-delete). If the collaborator is already gone, Lucid returns 404,
+		// which the client maps to codes.NotFound; we treat that as an idempotent
+		// success (GrantAlreadyRevoked), mirroring Grant's GrantAlreadyExists.
 		err := o.client.DeleteDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
-			if status.Code(err) == codes.NotFound {
+			if client.IsNotFoundError(err) {
 				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 			}
 
