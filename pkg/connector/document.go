@@ -170,7 +170,16 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		// on a failure the upsert itself reports.
 		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
-			l.Debug("baton-lucidchart: document collaborator pre-check GET failed; falling through to upsert",
+			// A 404 is the expected "user is not yet a collaborator" case, so it
+			// stays at Debug; any other read failure (403/405/500, cancelled
+			// context) is unexpected on this surface and gets Warn so a tenant
+			// where the pre-check is permanently degraded still emits a signal.
+			// Either way we fall through to the authoritative upsert.
+			logPreCheck := l.Debug
+			if !client.IsNotFoundError(err) {
+				logPreCheck = l.Warn
+			}
+			logPreCheck("baton-lucidchart: document collaborator pre-check GET failed; falling through to upsert",
 				zap.String("document_id", documentId),
 				zap.String("user_id", userId),
 				zap.Error(err),
