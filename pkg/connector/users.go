@@ -214,6 +214,13 @@ func userResource(user client.User) (*v2.Resource, error) {
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithEmail(user.Email, true),
 		rs.WithUserLogin(user.Email),
+		// Keep the (deprecated) trait status in sync with the resource status.
+		// NewUserTrait defaults an unset trait status to ENABLED, so without this
+		// a disabled user would report Resource.Status=DISABLED alongside
+		// UserTrait.Status=ENABLED — the exact "disabled user reports enabled"
+		// divergence this fix targets, just moved to trait-status readers.
+		//nolint:staticcheck // SA1019: WithStatus is deprecated, but consumers still read the trait status; syncing it prevents the divergence.
+		rs.WithStatus(status),
 	}
 
 	newUserResource, err := rs.NewUserResource(
@@ -264,8 +271,8 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 		// success and would let a failed offboarding look complete.
 		return annos, status.Errorf(codes.FailedPrecondition,
 			"baton-lucidchart: delete user %s: Lucid refused the delete (409) — the user is an account owner "+
-				"or a default document owner and cannot be deleted via SCIM; reassign that role in Lucid first",
-			userID)
+				"or a default document owner and cannot be deleted via SCIM; reassign that role in Lucid first (%v)",
+			userID, err)
 	default:
 		return annos, fmt.Errorf("baton-lucidchart: delete user %s: %w", userID, err)
 	}
@@ -274,9 +281,13 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // transferContentBeforeDelete moves the leaving user's documents to the
 // configured recipient, resolving their email from the REST record first.
 //
-// REST answers 403 both for "gone" and for "not permitted", so when it cannot
-// answer we ask SCIM, which 404s specifically for absence. Guessing either way
-// would mean deleting content we failed to move, or breaking retry idempotency.
+// A definite REST 404 means the user is already gone: skip the transfer and let
+// the SCIM delete (which treats its own 404 as success) run — no SCIM probe, so
+// a probe outage can't block an otherwise-valid delete. REST answers 403 both
+// for "gone" and for "not permitted", so only there is absence ambiguous; we ask
+// SCIM (which 404s specifically for absence) before deciding, because guessing
+// would mean either deleting content we failed to move or breaking retry
+// idempotency.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -286,7 +297,15 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		}
 		return nil
 
-	case client.IsNotFoundError(err), client.IsPermissionDeniedError(err):
+	case client.IsNotFoundError(err):
+		// REST gave a definite 404: the user is gone as far as content transfer
+		// is concerned. Proceed to the SCIM delete without probing SCIM first, so
+		// a probe failure (403/405/501 on a tenant without SCIM user GET, or a
+		// transient 5xx) cannot abort a delete REST already told us is safe.
+		return nil
+
+	case client.IsPermissionDeniedError(err):
+		// REST 403 is ambiguous ("gone" or "not permitted"), so confirm with SCIM.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil {
 			return fmt.Errorf(
