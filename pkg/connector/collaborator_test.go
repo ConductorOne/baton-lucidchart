@@ -23,9 +23,18 @@ import (
 // state.
 type collaboratorTestServer struct {
 	server   *httptest.Server
-	mu       sync.Mutex        // guards roles
+	mu       sync.Mutex        // guards roles, getObjIDs, putObjIDs, deleteObjIDs
 	roles    map[string]string // userId -> current role
 	putCalls int64
+
+	// Recorded object IDs (the folder/document {id} path segment) seen by each
+	// handler, in call order. The mux route matches any {id}, so without these a
+	// Revoke/Grant that reads the wrong object off the grant/entitlement (e.g.
+	// ParentResourceId instead of Id) would still hit a handler and pass; tests
+	// assert the EXPECTED object ID was received, not just that some handler fired.
+	getObjIDs    []string
+	putObjIDs    []string
+	deleteObjIDs []string
 
 	// Fault-injection overrides (0 = disabled). The handler goroutine reads them
 	// via atomic.LoadInt64; the tests set them with a plain assignment during
@@ -64,6 +73,35 @@ func (cts *collaboratorTestServer) deleteRole(uid string) bool {
 	return ok
 }
 
+// recordObjID appends the object ID a handler received; guarded by mu to pair
+// with the accessors and stay safe under -race.
+func (cts *collaboratorTestServer) recordObjID(dst *[]string, objID string) {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	*dst = append(*dst, objID)
+}
+
+// recordedGetObjIDs / recordedPutObjIDs / recordedDeleteObjIDs return copies of
+// the object IDs seen by each verb's handler, so tests can assert a request hit
+// the expected folder/document, not merely that the handler fired.
+func (cts *collaboratorTestServer) recordedGetObjIDs() []string {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	return append([]string(nil), cts.getObjIDs...)
+}
+
+func (cts *collaboratorTestServer) recordedPutObjIDs() []string {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	return append([]string(nil), cts.putObjIDs...)
+}
+
+func (cts *collaboratorTestServer) recordedDeleteObjIDs() []string {
+	cts.mu.Lock()
+	defer cts.mu.Unlock()
+	return append([]string(nil), cts.deleteObjIDs...)
+}
+
 func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServer {
 	t.Helper()
 
@@ -76,6 +114,7 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 	deletePattern := "DELETE /" + kind + "/{id}/shares/users/{uid}"
 
 	mux.HandleFunc(getPattern, func(w http.ResponseWriter, r *http.Request) {
+		cts.recordObjID(&cts.getObjIDs, r.PathValue("id"))
 		if s := atomic.LoadInt64(&cts.getStatus); s != 0 {
 			// Fault injection: simulate a non-404 read failure (e.g. 403/500).
 			w.WriteHeader(int(s))
@@ -95,6 +134,7 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 
 	mux.HandleFunc(putPattern, func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&cts.putCalls, 1)
+		cts.recordObjID(&cts.putObjIDs, r.PathValue("id"))
 		uid := r.PathValue("uid")
 
 		var body struct {
@@ -114,6 +154,7 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 	})
 
 	mux.HandleFunc(deletePattern, func(w http.ResponseWriter, r *http.Request) {
+		cts.recordObjID(&cts.deleteObjIDs, r.PathValue("id"))
 		uid := r.PathValue("uid")
 		if !cts.deleteRole(uid) {
 			// Lucid returns 404 when the user is not a direct collaborator.
