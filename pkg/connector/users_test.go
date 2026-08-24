@@ -111,22 +111,32 @@ func TestDelete_RestForbiddenButUserExists_RefusesToDelete(t *testing.T) {
 	require.False(t, routes.scimDelete, "must not delete when content could not be transferred")
 }
 
-// When REST answers an ambiguous 403 and the SCIM probe fails *transiently*
-// (rate-limited or an upstream 5xx, both of which the SDK maps to
-// Unavailable/ResourceExhausted), the connector cannot yet tell whether the user
-// is gone, so it must abort without deleting — but it must surface the retryable
-// code so the platform re-attempts the deprovision instead of parking it behind a
-// non-retryable Unknown. SCIM DELETE must never run.
+// When REST answers an ambiguous 403 and the SCIM probe fails *transiently*, the
+// connector cannot yet tell whether the user is gone, so it must abort without
+// deleting — but it must surface the retryable code the SDK's retry layer honors
+// so the platform re-attempts the deprovision instead of parking it behind a
+// non-retryable Unknown. The SDK maps HTTP 429/502/503/504 to codes.Unavailable
+// and HTTP 408 to codes.DeadlineExceeded, and treats exactly those two codes as
+// retryable. SCIM DELETE must never run.
 func TestDelete_RestForbiddenAndScimProbeTransient_ReturnsRetryableCode(t *testing.T) {
-	for _, probeStatus := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable, http.StatusInternalServerError} {
-		t.Run(http.StatusText(probeStatus), func(t *testing.T) {
+	cases := []struct {
+		probeStatus int
+		wantCode    codes.Code
+	}{
+		{http.StatusTooManyRequests, codes.Unavailable},
+		{http.StatusServiceUnavailable, codes.Unavailable},
+		{http.StatusInternalServerError, codes.Unavailable},
+		{http.StatusRequestTimeout, codes.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(http.StatusText(tc.probeStatus), func(t *testing.T) {
 			routes := &deleteRoutes{}
-			srv := newDeleteServer(t, routes, http.StatusForbidden, probeStatus, http.StatusNoContent)
+			srv := newDeleteServer(t, routes, http.StatusForbidden, tc.probeStatus, http.StatusNoContent)
 			defer srv.Close()
 
 			err := deleteUser(t, srv, "recipient@example.com")
 			require.Error(t, err)
-			require.Equal(t, codes.Unavailable, status.Code(err),
+			require.Equal(t, tc.wantCode, status.Code(err),
 				"a transient probe failure must surface as a retryable code")
 			require.True(t, routes.getUser, "REST lookup should be attempted")
 			require.True(t, routes.scimGet, "SCIM must be probed to disambiguate the 403")

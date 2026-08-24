@@ -296,9 +296,9 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // otherwise-valid delete). On the documented-but-overloaded 403 an unresolved
 // probe blocks the delete, but the returned gRPC code is classified so callers
 // can react: a cancelled/timed-out probe preserves the context error (so
-// errors.Is still matches), a transient failure (429/5xx) surfaces the retryable
-// ResourceExhausted/Unavailable code, and only a genuinely indeterminate probe
-// falls through to a deliberate codes.Unknown.
+// errors.Is still matches), a transient failure (429/5xx surfaces as Unavailable,
+// a 408 as DeadlineExceeded) keeps that retryable code, and only a genuinely
+// indeterminate probe falls through to a deliberate codes.Unknown.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -360,13 +360,15 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 				return fmt.Errorf(
 					"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
 					userID, err.Error(), ctxErr)
-			case status.Code(existsErr) == codes.ResourceExhausted ||
-				status.Code(existsErr) == codes.Unavailable:
-				// A transient probe failure — rate-limited (429) or an upstream 5xx,
-				// both of which the SDK surfaces as ResourceExhausted/Unavailable.
-				// Preserve that retryable code so the platform re-attempts the
-				// deprovision (which would likely succeed once SCIM is reachable
-				// again) rather than parking it behind a non-retryable Unknown.
+			case status.Code(existsErr) == codes.Unavailable ||
+				status.Code(existsErr) == codes.DeadlineExceeded:
+				// A transient probe failure. The SDK's GrpcCodeFromHTTPStatus maps
+				// HTTP 429/502/503/504 to codes.Unavailable and HTTP 408 to
+				// codes.DeadlineExceeded, and its retry layer treats exactly those
+				// two codes as retryable. Preserve the retryable code so the platform
+				// re-attempts the deprovision (which would likely succeed once SCIM
+				// is reachable again) rather than parking it behind a non-retryable
+				// Unknown.
 				return status.Errorf(status.Code(existsErr),
 					"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
 					userID, err, existsErr)
