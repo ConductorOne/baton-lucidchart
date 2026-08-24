@@ -363,7 +363,7 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 			case status.Code(existsErr) == codes.Unavailable ||
 				status.Code(existsErr) == codes.DeadlineExceeded:
 				// A transient probe failure. The SDK's GrpcCodeFromHTTPStatus maps
-				// HTTP 429/502/503/504 to codes.Unavailable and HTTP 408 to
+				// HTTP 429 and 5xx to codes.Unavailable and HTTP 408 to
 				// codes.DeadlineExceeded, and its retry layer treats exactly those
 				// two codes as retryable. Preserve the retryable code so the platform
 				// re-attempts the deprovision (which would likely succeed once SCIM
