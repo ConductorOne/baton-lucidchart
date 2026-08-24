@@ -22,6 +22,10 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.Len(t, grants, 1)
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
 		require.Equal(t, int64(1), cts.putCallCount())
+		// The GET pre-check and PUT upsert must target the folder from the
+		// entitlement, not some other object.
+		require.Equal(t, []string{"9001"}, cts.recordedGetObjIDs())
+		require.Equal(t, []string{"9001"}, cts.recordedPutObjIDs())
 	})
 
 	t.Run("re-grant of same role returns already-exists and skips upsert", func(t *testing.T) {
@@ -91,6 +95,8 @@ func TestFolderRevoke(t *testing.T) {
 		require.False(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
 		_, ok := cts.getRole("100")
 		require.False(t, ok, "collaborator must be removed after revoke")
+		// The DELETE must target the folder from the grant's entitlement.
+		require.Equal(t, []string{"9001"}, cts.recordedDeleteObjIDs())
 	})
 
 	t.Run("revoke of missing collaborator returns already-revoked", func(t *testing.T) {
