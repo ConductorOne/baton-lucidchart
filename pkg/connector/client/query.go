@@ -114,9 +114,11 @@ func (c *LucidchartClient) ListFolderUserCollaborators(ctx context.Context, fold
 }
 
 // GetFolderUserCollaborator fetches a single user's current collaborator role on
-// a folder via GET /folders/{id}/shares/users/{userId}. Lucid documents this as
-// direct-only: "A user having access to a folder through one of the folder's
-// ancestors will not be shown through this API"
+// a folder via GET /folders/{id}/shares/users/{userId}. Lucid's reference page
+// for this endpoint (titled "Get Folder User Collaborator"; the plural URL slug
+// is Lucid's convention, not the list endpoint) documents it as direct-only:
+// "A user having access to a folder through one of the folder's ancestors will
+// not be shown through this API"
 // (https://lucid.readme.io/reference/getfolderusercollaborators), so a matching
 // role here is always a direct share and the Grant no-op short-circuit is safe.
 // Lucid returns 404 (mapped to codes.NotFound) when the user is not a direct
