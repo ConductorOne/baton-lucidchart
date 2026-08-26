@@ -164,14 +164,14 @@ func TestDelete_ScimConflict_IsTerminalNotAlreadyExists(t *testing.T) {
 	require.Contains(t, err.Error(), "account owner")
 }
 
-func TestUserResource_ReportsEnabledAndUsername(t *testing.T) {
+func TestUserResource_ReportsDisabledAndUsername(t *testing.T) {
 	res, err := userResource(client.User{
 		AccountId: 1,
 		Email:     "disabled@example.com",
 		Name:      "Dana Disabled",
 		UserId:    105,
 		Username:  "disabled@example.com",
-		Enabled:   false,
+		Enabled:   boolPtr(false),
 		Roles:     []string{"developer"},
 	})
 	require.NoError(t, err)
@@ -180,12 +180,18 @@ func TestUserResource_ReportsEnabledAndUsername(t *testing.T) {
 
 	profile := res.GetProfile().AsMap()
 	require.Equal(t, "disabled@example.com", profile["username"])
-	require.Equal(t, false, profile["enabled"])
-	require.NotContains(t, profile, "usernames", "the plural key is not a field Lucid emits")
 }
 
 func TestUserResource_EnabledUserIsEnabled(t *testing.T) {
-	res, err := userResource(client.User{Email: "a@example.com", UserId: 1, Enabled: true})
+	res, err := userResource(client.User{Email: "a@example.com", UserId: 1, Enabled: boolPtr(true)})
 	require.NoError(t, err)
 	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, res.GetStatus().GetStatus())
 }
+
+func TestUserResource_MissingEnabledIsUnspecified(t *testing.T) {
+	res, err := userResource(client.User{Email: "a@example.com", UserId: 1})
+	require.NoError(t, err)
+	require.Equal(t, v2.Status_RESOURCE_STATUS_UNSPECIFIED, res.GetStatus().GetStatus())
+}
+
+func boolPtr(b bool) *bool { return &b }

@@ -9,14 +9,14 @@ import (
 // User mirrors Lucid's REST User model.
 // https://lucid.readme.io/reference/getuser
 type User struct {
-	AccountId int    `json:"accountId"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	UserId    int    `json:"userId"`
-	Username  string `json:"username"`
-	// Enabled is the read-back for the SCIM active flag.
-	Enabled bool     `json:"enabled"`
-	Roles   []string `json:"roles"`
+	AccountId int      `json:"accountId"`
+	Email     string   `json:"email"`
+	Name      string   `json:"name"`
+	UserId    int      `json:"userId"`
+	Usernames string   `json:"usernames"`
+	Username  string   `json:"username"`
+	Enabled   *bool    `json:"enabled"`
+	Roles     []string `json:"roles"`
 }
 
 type Folder struct {

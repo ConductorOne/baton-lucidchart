@@ -189,28 +189,14 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 	return password, nil
 }
 
-// userTraitStatusToResourceStatus maps the user-trait status enum to the
-// generic resource status enum explicitly, rather than relying on their
-// ordinal values staying aligned.
-func userTraitStatusToResourceStatus(status v2.UserTrait_Status_Status) v2.Status_ResourceStatus {
-	switch status {
-	case v2.UserTrait_Status_STATUS_ENABLED:
-		return v2.Status_RESOURCE_STATUS_ENABLED
-	case v2.UserTrait_Status_STATUS_DISABLED:
-		return v2.Status_RESOURCE_STATUS_DISABLED
-	case v2.UserTrait_Status_STATUS_DELETED:
-		return v2.Status_RESOURCE_STATUS_DELETED
-	default:
-		return v2.Status_RESOURCE_STATUS_UNSPECIFIED
-	}
-}
-
 func userResource(user client.User) (*v2.Resource, error) {
-	// Reporting Lucid's `enabled` field is what makes a SCIM deactivation
-	// observable; the status used to be pinned to ENABLED.
-	status := v2.UserTrait_Status_STATUS_DISABLED
-	if user.Enabled {
-		status = v2.UserTrait_Status_STATUS_ENABLED
+	status := v2.Status_RESOURCE_STATUS_UNSPECIFIED
+	if user.Enabled != nil {
+		if *user.Enabled {
+			status = v2.Status_RESOURCE_STATUS_ENABLED
+		} else {
+			status = v2.Status_RESOURCE_STATUS_DISABLED
+		}
 	}
 
 	// structpb has no []string case, so roles have to be widened.
@@ -224,8 +210,8 @@ func userResource(user client.User) (*v2.Resource, error) {
 		"email":      user.Email,
 		"name":       user.Name,
 		argUserID:    user.UserId,
+		"usernames":  user.Usernames,
 		"username":   user.Username,
-		"enabled":    user.Enabled,
 		"roles":      roles,
 	}
 
@@ -240,7 +226,7 @@ func userResource(user client.User) (*v2.Resource, error) {
 		user.UserId,
 		userTraitOptions,
 		rs.WithResourceProfile(profile),
-		rs.WithResourceStatus(userTraitStatusToResourceStatus(status), ""),
+		rs.WithResourceStatus(status, ""),
 	)
 	if err != nil {
 		return nil, err

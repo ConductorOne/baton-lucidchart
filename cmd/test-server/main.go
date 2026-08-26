@@ -91,6 +91,10 @@ const (
 	docPatchSchema    = "urn:ietf:params:scim:schemas:core:2.0:User"
 
 	scimListSchema = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+
+	// maxOAuthFormBytes bounds the /oauth2/token request body read by ParseForm,
+	// which otherwise buffers the whole body in memory regardless of size.
+	maxOAuthFormBytes = 1 << 20
 )
 
 // config carries the scenario switches. Defaults are the documented behaviour;
@@ -425,6 +429,7 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	// rejects what the real endpoint rejects: a permissive token endpoint has
 	// shipped broken grant_type params to production before.
 	mux.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
 		if err := r.ParseForm(); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 			return
