@@ -261,10 +261,8 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 
 	annos, err := o.client.ScimDeleteUser(ctx, userID)
 	switch {
-	case err == nil:
-		return annos, nil
-	case client.IsNotFoundError(err):
-		// Already deleted is success.
+	case err == nil, client.IsNotFoundError(err):
+		// nil = just deleted; not-found = already deleted. Both are success.
 		return annos, nil
 	case client.IsConflictError(err):
 		// Raw 409 surfaces as AlreadyExists, which reads as an idempotent
@@ -339,50 +337,9 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil {
 			// Neither source could tell us whether the user still exists, so we
-			// cannot yet decide if deleting is safe. But the *kind* of probe
-			// failure drives what we report: collapsing every failure into
-			// codes.Unknown would hide cancellation from errors.Is downstream and
-			// discourage the platform from retrying a transient outage that would
-			// likely succeed. Classify in priority order — cancellation, then
-			// retryable, then the deliberate indeterminate fallback.
-			switch {
-			case ctx.Err() != nil ||
-				errors.Is(existsErr, context.Canceled) ||
-				errors.Is(existsErr, context.DeadlineExceeded):
-				// The sync was cancelled or timed out while the probe was in
-				// flight. Preserve the context error via %w so errors.Is keeps
-				// matching context.Canceled / context.DeadlineExceeded downstream,
-				// instead of masking cancellation as a generic Unknown.
-				ctxErr := ctx.Err()
-				if ctxErr == nil {
-					ctxErr = existsErr
-				}
-				return fmt.Errorf(
-					"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
-					userID, err.Error(), ctxErr)
-			case status.Code(existsErr) == codes.Unavailable ||
-				status.Code(existsErr) == codes.DeadlineExceeded:
-				// A transient probe failure. The SDK's GrpcCodeFromHTTPStatus maps
-				// HTTP 429 and 5xx (except 501, which maps to codes.Unimplemented)
-				// to codes.Unavailable and HTTP 408 to
-				// codes.DeadlineExceeded, and its retry layer treats exactly those
-				// two codes as retryable. Preserve the retryable code so the platform
-				// re-attempts the deprovision (which would likely succeed once SCIM
-				// is reachable again) rather than parking it behind a non-retryable
-				// Unknown.
-				return status.Errorf(status.Code(existsErr),
-					"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
-					userID, err, existsErr)
-			default:
-				// Genuinely indeterminate/non-retryable: return codes.Unknown
-				// deliberately as a chosen "we cannot decide" signal, not whatever
-				// errors.As happens to surface first from two %w-wrapped chains.
-				// Both underlying errors are kept verbatim in the detail text so no
-				// diagnostic information is lost.
-				return status.Errorf(codes.Unknown,
-					"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
-					userID, err, existsErr)
-			}
+			// cannot yet decide if deleting is safe. Classify the probe failure so
+			// callers can react rather than seeing every failure as codes.Unknown.
+			return classifyProbeFailure(ctx, userID, err, existsErr)
 		}
 		if exists {
 			// Present but unreadable over REST: deleting would destroy content
@@ -398,6 +355,48 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 
 	default:
 		return fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
+	}
+}
+
+// classifyProbeFailure turns a failed SCIM existence probe into the gRPC error
+// to return when a documented-but-overloaded REST 403 left the user's existence
+// undecided. The *kind* of probe failure drives what we report: collapsing every
+// failure into codes.Unknown would hide cancellation from errors.Is downstream
+// and discourage the platform from retrying a transient outage that would likely
+// succeed. Classification is in priority order — cancellation, then retryable,
+// then the deliberate indeterminate fallback. restErr is the original REST 403.
+func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr error) error {
+	switch {
+	case ctx.Err() != nil ||
+		errors.Is(existsErr, context.Canceled) ||
+		errors.Is(existsErr, context.DeadlineExceeded):
+		// The sync was cancelled or timed out while the probe was in flight.
+		// Preserve the context error via %w so errors.Is keeps matching
+		// context.Canceled / context.DeadlineExceeded downstream, instead of
+		// masking cancellation as a generic Unknown.
+		ctxErr := ctx.Err()
+		if ctxErr == nil {
+			ctxErr = existsErr
+		}
+		return fmt.Errorf(
+			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
+			userID, restErr.Error(), ctxErr)
+	case client.IsRetryableError(existsErr):
+		// A transient probe failure (429/5xx → Unavailable, 408 → DeadlineExceeded).
+		// Preserve the retryable code so the platform re-attempts the deprovision
+		// (which would likely succeed once SCIM is reachable again) rather than
+		// parking it behind a non-retryable Unknown.
+		return status.Errorf(status.Code(existsErr),
+			"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
+			userID, restErr, existsErr)
+	default:
+		// Genuinely indeterminate/non-retryable: return codes.Unknown deliberately
+		// as a chosen "we cannot decide" signal, not whatever errors.As happens to
+		// surface first from two %w-wrapped chains. Both underlying errors are kept
+		// verbatim in the detail text so no diagnostic information is lost.
+		return status.Errorf(codes.Unknown,
+			"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
+			userID, restErr, existsErr)
 	}
 }
 
