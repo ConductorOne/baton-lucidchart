@@ -43,6 +43,21 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.Len(t, grants, 1)
 		require.Equal(t, "9001", grants[0].Entitlement.Resource.Id.Resource)
 		require.Equal(t, "100", grants[0].Principal.Id.Resource)
+
+		// The no-op grant must carry the same metaRole/metaCreated metadata a
+		// normal sync produces, so C1 does not see a metadata-diff churn.
+		noopMeta := grantMetadata(t, grants[0])
+		require.Equal(t, "edit", noopMeta[metaRole])
+		require.NotEmpty(t, noopMeta[metaCreated])
+
+		// Prove the no-op metadata is identical to what the upsert-success path
+		// emits for the same collaborator record.
+		upCts := newCollaboratorTestServer(t, "folders")
+		upB := &folderBuilder{client: newTestClient(t, upCts.server.URL)}
+		upGrants, _, err := upB.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, upGrants, 1)
+		require.Equal(t, grantMetadata(t, upGrants[0]), noopMeta)
 	})
 
 	t.Run("role change is not treated as already-exists", func(t *testing.T) {
