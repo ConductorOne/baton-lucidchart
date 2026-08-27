@@ -35,9 +35,14 @@ func TestFolderGrantIdempotency(t *testing.T) {
 
 		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
 		require.NoError(t, err)
-		require.Nil(t, grants)
 		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
 		require.Equal(t, int64(0), cts.putCallCount(), "no-op re-grant must not touch upstream state")
+		// The no-op path still returns the grant so C1 can materialize the
+		// membership immediately; it must target the folder (from the
+		// entitlement), not the user principal.
+		require.Len(t, grants, 1)
+		require.Equal(t, "9001", grants[0].Entitlement.Resource.Id.Resource)
+		require.Equal(t, "100", grants[0].Principal.Id.Resource)
 	})
 
 	t.Run("role change is not treated as already-exists", func(t *testing.T) {

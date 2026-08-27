@@ -165,7 +165,11 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 				zap.Error(err),
 			)
 		} else if current.Role == role {
-			return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
+			// Return the grant alongside GrantAlreadyExists so C1 materializes the
+			// membership now instead of waiting for the next sync; the annotation
+			// alone carries no grant data. The ID matches what Grants() emits.
+			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id)
+			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
 
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
