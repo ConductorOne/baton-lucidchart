@@ -12,8 +12,22 @@ import (
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/stretchr/testify/require"
 )
+
+// grantMetadata extracts the GrantMetadata annotation (metaRole/metaCreated) a
+// grant carries, so tests can assert the no-op re-grant path emits the same
+// metadata a normal sync (Grants()) or the upsert-success path would produce.
+func grantMetadata(t *testing.T, g *v2.Grant) map[string]interface{} {
+	t.Helper()
+	md := &v2.GrantMetadata{}
+	annos := annotations.Annotations(g.GetAnnotations())
+	ok, err := annos.Pick(md)
+	require.NoError(t, err)
+	require.True(t, ok, "grant must carry a GrantMetadata annotation")
+	return md.GetMetadata().AsMap()
+}
 
 // collaboratorTestServer is a stateful mock of the Lucid folder/document
 // collaborator surface. It serves the single-collaborator GET (404 when the user

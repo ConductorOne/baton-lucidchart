@@ -43,6 +43,21 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.Len(t, grants, 1)
 		require.Equal(t, "doc-abc", grants[0].Entitlement.Resource.Id.Resource)
 		require.Equal(t, "200", grants[0].Principal.Id.Resource)
+
+		// The no-op grant must carry the same metaRole/metaCreated metadata a
+		// normal sync produces, so C1 does not see a metadata-diff churn.
+		noopMeta := grantMetadata(t, grants[0])
+		require.Equal(t, "comment", noopMeta[metaRole])
+		require.NotEmpty(t, noopMeta[metaCreated])
+
+		// Prove the no-op metadata is identical to what the upsert-success path
+		// emits for the same collaborator record.
+		upCts := newCollaboratorTestServer(t, "documents")
+		upB := &documentBuilder{client: newTestClient(t, upCts.server.URL)}
+		upGrants, _, err := upB.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.Len(t, upGrants, 1)
+		require.Equal(t, grantMetadata(t, upGrants[0]), noopMeta)
 	})
 
 	t.Run("role change is not treated as already-exists", func(t *testing.T) {

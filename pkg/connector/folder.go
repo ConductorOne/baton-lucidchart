@@ -152,8 +152,12 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 		} else if current.Role == role {
 			// Return the grant alongside GrantAlreadyExists so C1 materializes the
 			// membership now instead of waiting for the next sync; the annotation
-			// alone carries no grant data. The ID matches what Grants() emits.
-			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id)
+			// alone carries no grant data. The ID and metadata match what Grants() emits.
+			metadata := map[string]interface{}{
+				metaRole:    current.Role,
+				metaCreated: current.Created.String(),
+			}
+			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
 			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
 
