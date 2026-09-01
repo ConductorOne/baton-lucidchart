@@ -189,24 +189,17 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 	return password, nil
 }
 
-// userTraitStatusToResourceStatus maps the user-trait status enum to the
-// generic resource status enum explicitly, rather than relying on their
-// ordinal values staying aligned.
-func userTraitStatusToResourceStatus(status v2.UserTrait_Status_Status) v2.Status_ResourceStatus {
-	switch status {
-	case v2.UserTrait_Status_STATUS_ENABLED:
-		return v2.Status_RESOURCE_STATUS_ENABLED
-	case v2.UserTrait_Status_STATUS_DISABLED:
-		return v2.Status_RESOURCE_STATUS_DISABLED
-	case v2.UserTrait_Status_STATUS_DELETED:
-		return v2.Status_RESOURCE_STATUS_DELETED
-	default:
-		return v2.Status_RESOURCE_STATUS_UNSPECIFIED
-	}
-}
-
 func userResource(user client.User) (*v2.Resource, error) {
-	status := v2.UserTrait_Status_STATUS_ENABLED
+	status := v2.Status_RESOURCE_STATUS_ENABLED
+	if user.Enabled != nil && !*user.Enabled {
+		status = v2.Status_RESOURCE_STATUS_DISABLED
+	}
+
+	// structpb has no []string case, so roles have to be widened.
+	roles := make([]interface{}, 0, len(user.Roles))
+	for _, r := range user.Roles {
+		roles = append(roles, r)
+	}
 
 	profile := map[string]interface{}{
 		"account_id": user.AccountId,
@@ -214,6 +207,8 @@ func userResource(user client.User) (*v2.Resource, error) {
 		"name":       user.Name,
 		argUserID:    user.UserId,
 		"usernames":  user.Usernames,
+		"username":   user.Username,
+		"roles":      roles,
 	}
 
 	userTraitOptions := []rs.UserTraitOption{
@@ -227,7 +222,7 @@ func userResource(user client.User) (*v2.Resource, error) {
 		user.UserId,
 		userTraitOptions,
 		rs.WithResourceProfile(profile),
-		rs.WithResourceStatus(userTraitStatusToResourceStatus(status), ""),
+		rs.WithResourceStatus(status, ""),
 	)
 	if err != nil {
 		return nil, err
@@ -249,34 +244,70 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 
 	userID := resourceID.Resource
 
-	// If content transfer is configured, resolve the user's email via GetUser
-	// (transferUserContent requires email, not ID). A 404 from GetUser means the
-	// REST record is already gone; skip the transfer but still attempt the SCIM
-	// delete below — REST 404 does not guarantee the SCIM record is absent, and
-	// ScimDeleteUser already treats its own 404 as success. Only a non-404 error
-	// or a transfer failure aborts the delete.
 	if o.contentTransferUserEmail != "" {
-		fromUser, err := o.client.GetUser(ctx, userID)
-		if err != nil && !client.IsNotFoundError(err) {
-			return nil, fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
+		if err := o.transferContentBeforeDelete(ctx, userID); err != nil {
+			return nil, err
 		}
-		if err == nil {
-			if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
-				return nil, fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
-			}
-		}
+		// A nil error with no email resolved means the user is already gone;
+		// fall through to the SCIM delete, which treats its own 404 as success.
 	}
 
 	annos, err := o.client.ScimDeleteUser(ctx, userID)
-	if err != nil {
-		if client.IsNotFoundError(err) {
-			// Already deleted is success.
-			return annos, nil
-		}
+	switch {
+	case err == nil:
+		return annos, nil
+	case client.IsNotFoundError(err):
+		// Already deleted is success.
+		return annos, nil
+	case client.IsConflictError(err):
+		// Raw 409 surfaces as AlreadyExists, which reads as an idempotent
+		// success and would let a failed offboarding look complete.
+		return annos, status.Errorf(codes.FailedPrecondition,
+			"baton-lucidchart: delete user %s: Lucid refused the delete (409) — the user is an account owner "+
+				"or a default document owner and cannot be deleted via SCIM; reassign that role in Lucid first",
+			userID)
+	default:
 		return annos, fmt.Errorf("baton-lucidchart: delete user %s: %w", userID, err)
 	}
+}
 
-	return annos, nil
+// transferContentBeforeDelete moves the leaving user's documents to the
+// configured recipient, resolving their email from the REST record first.
+//
+// REST answers 403 both for "gone" and for "not permitted", so when it cannot
+// answer we ask SCIM, which 404s specifically for absence. Guessing either way
+// would mean deleting content we failed to move, or breaking retry idempotency.
+func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
+	fromUser, err := o.client.GetUser(ctx, userID)
+	switch {
+	case err == nil:
+		if _, err := o.client.TransferContent(ctx, fromUser.Email, o.contentTransferUserEmail); err != nil {
+			return fmt.Errorf("baton-lucidchart: transfer content from user %s: %w", userID, err)
+		}
+		return nil
+
+	case client.IsNotFoundError(err), client.IsPermissionDeniedError(err):
+		exists, existsErr := o.client.ScimUserExists(ctx, userID)
+		if existsErr != nil {
+			return fmt.Errorf(
+				"baton-lucidchart: could not resolve user %s for content transfer (%w) and could not confirm whether they still exist: %w",
+				userID, err, existsErr)
+		}
+		if exists {
+			// Present but unreadable over REST: deleting would destroy content
+			// the operator asked to retain.
+			return status.Errorf(codes.FailedPrecondition,
+				"baton-lucidchart: user %s exists but their email could not be read for content transfer (%v); "+
+					"refusing to delete and lose their documents — check that the OAuth token carries "+
+					"account.user:readonly and that the user is on this account",
+				userID, err)
+		}
+		// Genuinely gone; proceed so the delete stays idempotent under retry.
+		return nil
+
+	default:
+		return fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
+	}
 }
 
 func newUserBuilder(client *client.LucidchartClient, contentTransferUserEmail string) *userBuilder {
