@@ -190,13 +190,9 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 }
 
 func userResource(user client.User) (*v2.Resource, error) {
-	status := v2.Status_RESOURCE_STATUS_UNSPECIFIED
-	if user.Enabled != nil {
-		if *user.Enabled {
-			status = v2.Status_RESOURCE_STATUS_ENABLED
-		} else {
-			status = v2.Status_RESOURCE_STATUS_DISABLED
-		}
+	status := v2.Status_RESOURCE_STATUS_ENABLED
+	if user.Enabled != nil && !*user.Enabled {
+		status = v2.Status_RESOURCE_STATUS_DISABLED
 	}
 
 	// structpb has no []string case, so roles have to be widened.

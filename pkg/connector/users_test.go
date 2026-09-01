@@ -188,10 +188,10 @@ func TestUserResource_EnabledUserIsEnabled(t *testing.T) {
 	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, res.GetStatus().GetStatus())
 }
 
-func TestUserResource_MissingEnabledIsUnspecified(t *testing.T) {
+func TestUserResource_MissingEnabledDefaultsToEnabled(t *testing.T) {
 	res, err := userResource(client.User{Email: "a@example.com", UserId: 1})
 	require.NoError(t, err)
-	require.Equal(t, v2.Status_RESOURCE_STATUS_UNSPECIFIED, res.GetStatus().GetStatus())
+	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, res.GetStatus().GetStatus())
 }
 
 func boolPtr(b bool) *bool { return &b }
