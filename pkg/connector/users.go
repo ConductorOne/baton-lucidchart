@@ -214,13 +214,6 @@ func userResource(user client.User) (*v2.Resource, error) {
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithEmail(user.Email, true),
 		rs.WithUserLogin(user.Email),
-		// Keep the (deprecated) trait status in sync with the resource status.
-		// NewUserTrait defaults an unset trait status to ENABLED, so without this
-		// a disabled user would report Resource.Status=DISABLED alongside
-		// UserTrait.Status=ENABLED — the exact "disabled user reports enabled"
-		// divergence this fix targets, just moved to trait-status readers.
-		//nolint:staticcheck // SA1019: WithStatus is deprecated, but consumers still read the trait status; syncing it prevents the divergence.
-		rs.WithStatus(status),
 	}
 
 	newUserResource, err := rs.NewUserResource(

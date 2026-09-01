@@ -70,10 +70,6 @@ const (
 	// REST user 1234 is "lucid-1234" (reference/overview-scim, User.id).
 	scimIDPrefix = "lucid-"
 
-	// maxFormBody caps the request body the mock will parse (1 MiB). Guards the
-	// ParseForm read against an unbounded body (gosec G107/decompression-bomb).
-	maxFormBody = 1 << 20
-
 	// maxSeedUsers caps POST /_test/users?count= so a mistyped count returns a
 	// 400 instead of OOMing the mock in makeslice. Well above any real
 	// pagination-boundary run (PAG-03 exercises a few thousand).
