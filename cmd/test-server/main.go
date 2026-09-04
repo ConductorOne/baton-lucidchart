@@ -798,7 +798,6 @@ func newMux(s *store, cfg config) *http.ServeMux {
 			if !strings.ContainsAny(op.Path, "[]") {
 				continue
 			}
-			//nolint:gosec // test-server: path is diagnostic only
 			log.Printf("DIVERGENCE: PATCH path %q uses a SCIM value filter; Lucid documents "+
 				"no filtered-path support (its path example is the bare attribute %q)",
 				op.Path, "roles")
