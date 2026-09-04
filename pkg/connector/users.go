@@ -281,15 +281,21 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // specifically for absence) before deciding, and refuse the delete only when
 // SCIM affirmatively reports the user still present.
 //
-// The two paths differ only in how they treat a SCIM probe error. On the
-// undocumented 404 a probe outage is treated as "proceed" so it can't block a
-// delete (preserving the original rule that a probe outage must not block an
-// otherwise-valid delete). On the documented-but-overloaded 403 an unresolved
-// probe blocks the delete, but the returned gRPC code is classified so callers
-// can react: a cancelled/timed-out probe preserves the context error (so
-// errors.Is still matches), a transient failure (429 and 5xx except 501 surface
-// as Unavailable, a 408 as DeadlineExceeded) keeps that retryable code, and only
-// a genuinely indeterminate probe falls through to a deliberate codes.Unknown.
+// Both paths classify a failed probe the same way, via classifyProbeFailure: a
+// cancelled/timed-out probe preserves the context error (so errors.Is still
+// matches) and a transient failure (429 and 5xx except 501 surface as
+// Unavailable, a 408 as DeadlineExceeded) keeps that retryable code. In either
+// case the delete is aborted — a SCIM outage says nothing about whether the user
+// is still there, and hard-deleting on the strength of an outage is exactly the
+// data loss this path exists to prevent.
+//
+// The two paths differ only in the genuinely indeterminate, non-retryable case
+// (probeFailureBlocksDelete is false). The documented-but-overloaded 403 refuses
+// with a deliberate codes.Unknown, because a 403 is Lucid's normal answer for a
+// user who still exists. The undocumented 404 proceeds to the SCIM delete, which
+// preserves the original rule that a one-off probe failure must not permanently
+// block an otherwise-valid delete; the SCIM delete treats its own 404 as success,
+// so a retry of an already-processed deprovision still converges.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -306,11 +312,15 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		// so we can't assume the user is gone: if it can ever occur for a user
 		// who still exists, proceeding straight to the hard SCIM delete would
 		// destroy content the operator asked to retain. Probe SCIM (which 404s
-		// specifically for absence) and refuse only when it affirmatively
-		// reports the user still present. Any probe error is treated as
-		// "proceed" so a probe outage still cannot block an otherwise-valid
-		// delete.
+		// specifically for absence) and refuse when it affirmatively reports
+		// the user still present — or when the probe fails in a way that says
+		// nothing about their existence (cancelled, or transient and worth
+		// retrying), since deleting on the strength of a SCIM outage is the same
+		// data loss by another route.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
+		if existsErr != nil && probeFailureBlocksDelete(ctx, existsErr) {
+			return classifyProbeFailure(ctx, userID, err, existsErr)
+		}
 		if existsErr == nil && exists {
 			// Present per SCIM but unreadable over REST: deleting would destroy
 			// content we could not transfer.
@@ -320,9 +330,10 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 					"check that the OAuth token carries account.user:readonly and that the user is on this account",
 				userID, err)
 		}
-		// Either SCIM confirms the user is gone, or the probe itself failed; in
-		// both cases proceed to the SCIM delete (which treats its own 404 as
-		// success), so a probe outage cannot abort a valid delete.
+		// Either SCIM confirms the user is gone, or the probe failed in a
+		// non-retryable, indeterminate way. Proceed to the SCIM delete (which
+		// treats its own 404 as success) so a one-off probe failure cannot
+		// permanently block a valid delete.
 		return nil
 
 	case client.IsPermissionDeniedError(err):
@@ -351,13 +362,28 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 	}
 }
 
+// probeFailureBlocksDelete reports whether a failed SCIM existence probe is one
+// that must abort the delete outright. A cancelled or transient probe carries no
+// information about whether the user still exists, so deleting on the strength
+// of it risks destroying content the operator asked to retain. Callers that see
+// true should hand existsErr to classifyProbeFailure for the error to return.
+func probeFailureBlocksDelete(ctx context.Context, existsErr error) bool {
+	return ctx.Err() != nil ||
+		errors.Is(existsErr, context.Canceled) ||
+		errors.Is(existsErr, context.DeadlineExceeded) ||
+		client.IsRetryableError(existsErr)
+}
+
 // classifyProbeFailure turns a failed SCIM existence probe into the gRPC error
-// to return when a documented-but-overloaded REST 403 left the user's existence
-// undecided. The *kind* of probe failure drives what we report: collapsing every
-// failure into codes.Unknown would hide cancellation from errors.Is downstream
-// and discourage the platform from retrying a transient outage that would likely
-// succeed. Classification is in priority order — cancellation, then retryable,
-// then the deliberate indeterminate fallback. restErr is the original REST 403.
+// to return when the REST lookup (an overloaded 403, or an undocumented 404)
+// left the user's existence undecided. The *kind* of probe failure drives what
+// we report: collapsing every failure into codes.Unknown would hide cancellation
+// from errors.Is downstream and discourage the platform from retrying a
+// transient outage that would likely succeed. Classification is in priority
+// order — cancellation, then retryable, then the deliberate indeterminate
+// fallback, which only the 403 caller reaches (the 404 caller gates on
+// probeFailureBlocksDelete and proceeds instead). restErr is the original REST
+// error.
 func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr error) error {
 	switch {
 	case ctx.Err() != nil ||
