@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -130,6 +127,7 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts 
 }
 
 func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	if resource.Id.ResourceType == userResourceType.Id {
 		userId := resource.Id.Resource
 		folderId := entitlement.Resource.Id.Resource
@@ -141,8 +139,40 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 
 		role := splitted[1]
 
+		// Pre-check the current role so a no-op re-grant reports GrantAlreadyExists.
+		// Best-effort: any read error falls through to the authoritative upsert.
+		current, err := o.client.GetFolderUserCollaborator(ctx, folderId, userId)
+		if err != nil {
+			// Debug, not Warn: this can recur on every grant for tenants without the GET.
+			l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+				zap.String("folder_id", folderId),
+				zap.String("user_id", userId),
+				zap.Error(err),
+			)
+		} else if current.Role == role {
+			// Return the grant alongside GrantAlreadyExists so C1 materializes the
+			// membership now instead of waiting for the next sync; the annotation
+			// alone carries no grant data. The ID and metadata match what Grants() emits.
+			metadata := map[string]interface{}{
+				metaRole:    current.Role,
+				metaCreated: current.Created.String(),
+			}
+			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+		}
+
 		response, err := o.client.UpsertFolderUserCollaborator(ctx, folderId, userId, role)
 		if err != nil {
+			// Lucid's upsert is documented as never returning 409 today, but if it
+			// ever does, treat it as an idempotent success rather than a failure.
+			// Return the grant alongside the annotation for the same reason as the
+			// pre-check path above. metaCreated is unavailable on this error path;
+			// metaRole is the entitlement's own role, so it is known.
+			if client.IsAlreadyExistsError(err) {
+				metadata := map[string]interface{}{metaRole: role}
+				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+			}
 			return nil, nil, err
 		}
 
@@ -169,9 +199,11 @@ func (o *folderBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotation
 		userId := grant.Principal.Id.Resource
 		folderId := grant.Entitlement.Resource.Id.Resource
 
+		// Remove the user's collaborator record entirely. A 404 (already gone) is
+		// an idempotent success (GrantAlreadyRevoked).
 		err := o.client.DeleteFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
-			if status.Code(err) == codes.NotFound {
+			if client.IsNotFoundError(err) {
 				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 			}
 			return nil, err

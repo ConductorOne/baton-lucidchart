@@ -1,0 +1,157 @@
+package connector
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"testing"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/stretchr/testify/require"
+)
+
+func TestFolderGrantIdempotency(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("new grant returns no already-exists annotation and calls upsert", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+		// The GET pre-check and PUT upsert must target the folder from the
+		// entitlement, not some other object.
+		require.Equal(t, []string{"9001"}, cts.recordedGetObjIDs())
+		require.Equal(t, []string{"9001"}, cts.recordedPutObjIDs())
+	})
+
+	t.Run("re-grant of same role returns already-exists and skips upsert", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "edit" // user already holds exactly this role
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(0), cts.putCallCount(), "no-op re-grant must not touch upstream state")
+		// The no-op path still returns the grant so C1 can materialize the
+		// membership immediately; it must target the folder (from the
+		// entitlement), not the user principal.
+		require.Len(t, grants, 1)
+		require.Equal(t, "9001", grants[0].Entitlement.Resource.Id.Resource)
+		require.Equal(t, "100", grants[0].Principal.Id.Resource)
+
+		// The no-op grant must carry the same metaRole/metaCreated metadata a
+		// normal sync produces, so C1 does not see a metadata-diff churn.
+		noopMeta := grantMetadata(t, grants[0])
+		require.Equal(t, "edit", noopMeta[metaRole])
+		require.NotEmpty(t, noopMeta[metaCreated])
+
+		// Prove the no-op metadata is identical to what the upsert-success path
+		// emits for the same collaborator record.
+		upCts := newCollaboratorTestServer(t, "folders")
+		upB := &folderBuilder{client: newTestClient(t, upCts.server.URL)}
+		upGrants, _, err := upB.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, upGrants, 1)
+		require.Equal(t, grantMetadata(t, upGrants[0]), noopMeta)
+	})
+
+	t.Run("role change is not treated as already-exists", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "view" // user holds a different role
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	// A non-404 read failure on the pre-check GET (403 PermissionDenied observed
+	// on this surface, or 500) must not abort the grant: the upsert is
+	// authoritative, so the grant should still succeed.
+	for _, getStatus := range []int64{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run("pre-check GET "+strconv.FormatInt(getStatus, 10)+" falls through to successful upsert", func(t *testing.T) {
+			cts := newCollaboratorTestServer(t, "folders")
+			cts.getStatus = getStatus
+			b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+			grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+			require.NoError(t, err, "GET %d must not abort the grant", getStatus)
+			require.Len(t, grants, 1)
+			require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+			require.Equal(t, int64(1), cts.putCallCount(), "upsert must still run after a failed pre-check")
+		})
+	}
+
+	t.Run("upsert failure propagates as an error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.putStatus = http.StatusInternalServerError
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.Error(t, err)
+		require.Nil(t, grants)
+		require.Nil(t, annos)
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
+	// Lucid's upsert is documented as never returning 409 today, but the error
+	// path defensively treats one as an idempotent success rather than a
+	// failure, in case that ever changes upstream.
+	t.Run("upsert 409 is treated as already-exists, not an error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.putStatus = http.StatusConflict
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+
+		// Like the pre-check no-op path, the 409 branch returns the grant so C1
+		// materializes the membership immediately instead of waiting for the next
+		// sync. It targets the folder (from the entitlement), not the principal.
+		require.Len(t, grants, 1)
+		require.Equal(t, "9001", grants[0].Entitlement.Resource.Id.Resource)
+		require.Equal(t, "100", grants[0].Principal.Id.Resource)
+
+		// metaRole is knowable from the entitlement; metaCreated is not available
+		// on the error path, so it is omitted rather than fabricated.
+		meta := grantMetadata(t, grants[0])
+		require.Equal(t, "edit", meta[metaRole])
+		require.NotContains(t, meta, metaCreated)
+	})
+}
+
+func TestFolderRevoke(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("revoke of existing collaborator deletes upstream and returns no annotation", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "edit"
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("100", folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.False(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
+		_, ok := cts.getRole("100")
+		require.False(t, ok, "collaborator must be removed after revoke")
+		// The DELETE must target the folder from the grant's entitlement.
+		require.Equal(t, []string{"9001"}, cts.recordedDeleteObjIDs())
+	})
+
+	t.Run("revoke of missing collaborator returns already-revoked", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		annos, err := b.Revoke(ctx, userGrant("100", folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyRevoked{}))
+	})
+}
