@@ -798,7 +798,10 @@ func newMux(s *store, cfg config) *http.ServeMux {
 			if !strings.ContainsAny(op.Path, "[]") {
 				continue
 			}
-			log.Printf("DIVERGENCE: PATCH path %q uses a SCIM value filter; Lucid documents no filtered-path support (its path example is the bare attribute %q)", op.Path, "roles") //nolint:gosec // test-server: path is diagnostic only
+			//nolint:gosec // test-server: path is diagnostic only
+			log.Printf("DIVERGENCE: PATCH path %q uses a SCIM value filter; Lucid documents "+
+				"no filtered-path support (its path example is the bare attribute %q)",
+				op.Path, "roles")
 			if cfg.strictSCIMDoc {
 				writeLucidError(w, http.StatusBadRequest, "badRequest",
 					fmt.Sprintf("Lucid documents no filtered-path support for PATCH; path must be a bare attribute, got %q", op.Path))
