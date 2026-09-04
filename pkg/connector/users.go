@@ -277,11 +277,10 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // response proves the user is gone, so both ask SCIM (which 404s specifically
 // for absence) and refuse the delete when SCIM reports the user still present.
 //
-// A probe that fails without answering that question is gated by
-// probeFailureBlocksDelete: cancelled and transient failures abort the delete
-// via classifyProbeFailure. The paths diverge only on a non-retryable,
-// indeterminate probe failure — 403 returns codes.Unknown, 404 proceeds to the
-// SCIM delete, which treats its own 404 as success so retries converge.
+// A probe that fails answers nothing about existence, so it can never authorize
+// the hard delete; classifyProbeFailure turns it into the error to return.
+// Only an affirmative SCIM "absent" lets the delete proceed, and the SCIM delete
+// treats its own 404 as success so retries still converge.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -291,29 +290,10 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		}
 		return nil
 
-	case client.IsNotFoundError(err):
-		// A 404 is undocumented for this endpoint and so does not prove absence;
-		// confirm with SCIM before any hard delete.
-		exists, existsErr := o.client.ScimUserExists(ctx, userID)
-		if existsErr != nil && probeFailureBlocksDelete(ctx, existsErr) {
-			return classifyProbeFailure(ctx, userID, err, existsErr)
-		}
-		if existsErr == nil && exists {
-			// Present per SCIM but unreadable over REST: deleting would destroy
-			// content we could not transfer.
-			return status.Errorf(codes.FailedPrecondition,
-				"baton-lucidchart: user %s could not be read for content transfer (undocumented REST 404: %v) "+
-					"but SCIM reports they still exist; refusing to delete and lose their documents — "+
-					"check that the OAuth token carries account.user:readonly and that the user is on this account",
-				userID, err)
-		}
-		// SCIM confirms the user is gone, or the probe failed in a non-retryable,
-		// indeterminate way; proceed to the SCIM delete, which treats its own 404
-		// as success.
-		return nil
-
-	case client.IsPermissionDeniedError(err):
-		// REST 403 is ambiguous ("gone" or "not permitted"), so confirm with SCIM.
+	case client.IsNotFoundError(err), client.IsPermissionDeniedError(err):
+		// Both responses are ambiguous as to absence — 403 is Lucid's documented
+		// answer for "not permitted" and "does not exist" alike, and a 404 is
+		// undocumented here — so confirm with SCIM before any hard delete.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil {
 			// Neither source could tell us whether the user still exists, so we
@@ -338,20 +318,9 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 	}
 }
 
-// probeFailureBlocksDelete reports whether a failed SCIM existence probe is one
-// that must abort the delete outright. A cancelled or transient probe carries no
-// information about whether the user still exists, so deleting on the strength
-// of it risks destroying content the operator asked to retain. Callers that see
-// true should hand existsErr to classifyProbeFailure for the error to return.
-func probeFailureBlocksDelete(ctx context.Context, existsErr error) bool {
-	return isProbeCancellation(ctx, existsErr) || client.IsRetryableError(existsErr)
-}
-
 // isProbeCancellation reports whether a failed SCIM existence probe failed
 // because the surrounding sync was cancelled or timed out rather than because
-// of anything the probe learned about the user. Shared by the gate
-// (probeFailureBlocksDelete) and the classifier (classifyProbeFailure) so the
-// two cannot drift out of agreement about what counts as cancellation.
+// of anything the probe learned about the user.
 func isProbeCancellation(ctx context.Context, existsErr error) bool {
 	return ctx.Err() != nil ||
 		errors.Is(existsErr, context.Canceled) ||
@@ -364,10 +333,8 @@ func isProbeCancellation(ctx context.Context, existsErr error) bool {
 // we report: collapsing every failure into codes.Unknown would hide cancellation
 // from errors.Is downstream and discourage the platform from retrying a
 // transient outage that would likely succeed. Classification is in priority
-// order — cancellation, then retryable, then the deliberate indeterminate
-// fallback, which only the 403 caller reaches (the 404 caller gates on
-// probeFailureBlocksDelete and proceeds instead). restErr is the original REST
-// error.
+// order — cancellation, then retryable, then a deliberate indeterminate
+// fallback. restErr is the original REST error.
 func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr error) error {
 	switch {
 	case isProbeCancellation(ctx, existsErr):

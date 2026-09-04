@@ -305,22 +305,23 @@ func TestDelete_GetUserNotFoundAndProbeCancelled_PreservesContextError(t *testin
 	require.False(t, routes.scimDelete, "delete must not run when the probe was cancelled")
 }
 
-// A non-retryable, indeterminate probe failure (here a 400) is where the two
-// paths still differ: the undocumented-404 path proceeds to the SCIM delete, so
-// a one-off probe failure cannot permanently block an otherwise-valid delete.
-// The ambiguous-403 path refuses instead — see
+// A non-retryable, indeterminate probe failure (here a 400) never confirmed
+// that the user is absent, so the undocumented-404 path must refuse the delete
+// exactly as the ambiguous-403 path does — proceeding would hard-delete a user
+// who may still exist and destroy documents that were never transferred. Mirrors
 // TestDelete_RestForbiddenAndScimProbeIndeterminate_ReturnsUnknown.
-func TestDelete_GetUserNotFoundAndScimProbeIndeterminate_ProceedsToScimDelete(t *testing.T) {
+func TestDelete_GetUserNotFoundAndScimProbeIndeterminate_RefusesToDelete(t *testing.T) {
 	routes := &deleteRoutes{}
 	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusBadRequest, http.StatusNoContent)
 	defer srv.Close()
 
 	err := deleteUser(t, srv, "recipient@example.com")
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Equal(t, codes.Unknown, status.Code(err))
 	require.True(t, routes.scimGet, "an undocumented 404 must attempt the SCIM probe")
 	require.False(t, routes.transfer)
-	require.True(t, routes.scimDelete,
-		"an indeterminate probe failure must not permanently block a valid delete")
+	require.False(t, routes.scimDelete,
+		"an indeterminate probe never confirmed absence, so the hard delete must not run")
 }
 
 func TestDelete_HappyPath_TransfersThenDeletes(t *testing.T) {
