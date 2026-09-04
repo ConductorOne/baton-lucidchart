@@ -111,9 +111,21 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 
 		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
 		require.NoError(t, err)
-		require.Nil(t, grants)
 		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
 		require.Equal(t, int64(1), cts.putCallCount())
+
+		// Like the pre-check no-op path, the 409 branch returns the grant so C1
+		// materializes the membership immediately instead of waiting for the next
+		// sync. It targets the document (from the entitlement), not the principal.
+		require.Len(t, grants, 1)
+		require.Equal(t, "doc-abc", grants[0].Entitlement.Resource.Id.Resource)
+		require.Equal(t, "200", grants[0].Principal.Id.Resource)
+
+		// metaRole is knowable from the entitlement; metaCreated is not available
+		// on the error path, so it is omitted rather than fabricated.
+		meta := grantMetadata(t, grants[0])
+		require.Equal(t, "comment", meta[metaRole])
+		require.NotContains(t, meta, metaCreated)
 	})
 }
 
