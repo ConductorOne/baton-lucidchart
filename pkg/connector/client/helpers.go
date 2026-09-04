@@ -13,9 +13,17 @@ func IsNotFoundError(err error) bool {
 }
 
 // IsPermissionDeniedError reports whether err represents an upstream 403.
-// Lucid's GET /v1/users/{id} returns 403 — never 404 — for a user that does not
-// exist, so a 403 means either "gone" or "not permitted" and callers must
-// disambiguate elsewhere. https://lucid.readme.io/reference/getuser
+// Lucid documents only 200 and 403 for GET /v1/users/{id}, with 403 covering
+// both "does not belong to the authenticated account or does not exist" and a
+// plain scope failure — so a documented 403 means either "gone" or "not
+// permitted" and callers must disambiguate elsewhere.
+// https://lucid.readme.io/reference/getuser
+//
+// An undocumented 404 has also been observed from that endpoint and must be
+// handled defensively rather than trusted as proof of absence, so
+// IsNotFoundError is not the complement of this predicate here. See
+// transferContentBeforeDelete in pkg/connector/users.go, which disambiguates
+// both responses through a SCIM existence probe before allowing a hard delete.
 func IsPermissionDeniedError(err error) bool {
 	return status.Code(err) == codes.PermissionDenied
 }
