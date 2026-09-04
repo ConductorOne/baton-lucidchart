@@ -9,8 +9,11 @@ env:
   BATON_LOG_LEVEL: debug
   # Credentials + endpoints for the in-process mock (cmd/test-server). No real
   # Lucid tenant, OAuth credentials, or rotating refresh token are involved: the
-  # mock serves the OAuth2 token endpoint, the REST API and SCIM. Any non-empty
-  # bearer is accepted. The connector derives the OAuth token URL from BATON_BASE_URL.
+  # mock serves the OAuth2 token endpoint, the REST API and SCIM. As in
+  # production, the REST and SCIM surfaces require DIFFERENT bearer tokens: the
+  # mock rejects the SCIM token on REST routes and enforces BATON_LUCID_SCIM_TOKEN
+  # on SCIM routes, so it is passed through to the mock's -scim-token by the
+  # start-test-server action. The connector derives the OAuth token URL from BATON_BASE_URL.
   BATON_LUCID_API_KEY: test-api-key
   BATON_LUCID_CLIENT_ID: test-client-id
   BATON_LUCID_CLIENT_SECRET: test-client-secret

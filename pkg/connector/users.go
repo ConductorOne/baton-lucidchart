@@ -254,18 +254,16 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 
 	annos, err := o.client.ScimDeleteUser(ctx, userID)
 	switch {
-	case err == nil:
-		return annos, nil
-	case client.IsNotFoundError(err):
-		// Already deleted is success.
+	case err == nil, client.IsNotFoundError(err):
+		// nil = just deleted; not-found = already deleted. Both are success.
 		return annos, nil
 	case client.IsConflictError(err):
 		// Raw 409 surfaces as AlreadyExists, which reads as an idempotent
 		// success and would let a failed offboarding look complete.
 		return annos, status.Errorf(codes.FailedPrecondition,
 			"baton-lucidchart: delete user %s: Lucid refused the delete (409) — the user is an account owner "+
-				"or a default document owner and cannot be deleted via SCIM; reassign that role in Lucid first",
-			userID)
+				"or a default document owner and cannot be deleted via SCIM; reassign that role in Lucid first (%v)",
+			userID, err)
 	default:
 		return annos, fmt.Errorf("baton-lucidchart: delete user %s: %w", userID, err)
 	}
@@ -274,9 +272,15 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // transferContentBeforeDelete moves the leaving user's documents to the
 // configured recipient, resolving their email from the REST record first.
 //
-// REST answers 403 both for "gone" and for "not permitted", so when it cannot
-// answer we ask SCIM, which 404s specifically for absence. Guessing either way
-// would mean deleting content we failed to move, or breaking retry idempotency.
+// GET /v1/users/{id} documents only 200 and 403, where 403 covers both "not
+// permitted" and "does not exist"; an undocumented 404 also occurs. Neither
+// response proves the user is gone, so both ask SCIM (which 404s specifically
+// for absence) and refuse the delete when SCIM reports the user still present.
+//
+// A probe that fails answers nothing about existence, so it can never authorize
+// the hard delete; classifyProbeFailure turns it into the error to return.
+// Only an affirmative SCIM "absent" lets the delete proceed, and the SCIM delete
+// treats its own 404 as success so retries still converge.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -287,11 +291,15 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		return nil
 
 	case client.IsNotFoundError(err), client.IsPermissionDeniedError(err):
+		// Both responses are ambiguous as to absence — 403 is Lucid's documented
+		// answer for "not permitted" and "does not exist" alike, and a 404 is
+		// undocumented here — so confirm with SCIM before any hard delete.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil {
-			return fmt.Errorf(
-				"baton-lucidchart: could not resolve user %s for content transfer (%w) and could not confirm whether they still exist: %w",
-				userID, err, existsErr)
+			// Neither source could tell us whether the user still exists, so we
+			// cannot yet decide if deleting is safe. Classify the probe failure so
+			// callers can react rather than seeing every failure as codes.Unknown.
+			return classifyProbeFailure(ctx, userID, err, existsErr)
 		}
 		if exists {
 			// Present but unreadable over REST: deleting would destroy content
@@ -307,6 +315,60 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 
 	default:
 		return fmt.Errorf("baton-lucidchart: resolve email for content transfer (user %s): %w", userID, err)
+	}
+}
+
+// isProbeCancellation reports whether a failed SCIM existence probe failed
+// because the surrounding sync was cancelled or timed out rather than because
+// of anything the probe learned about the user.
+func isProbeCancellation(ctx context.Context, existsErr error) bool {
+	return ctx.Err() != nil ||
+		errors.Is(existsErr, context.Canceled) ||
+		errors.Is(existsErr, context.DeadlineExceeded)
+}
+
+// classifyProbeFailure turns a failed SCIM existence probe into the gRPC error
+// to return when the REST lookup (an overloaded 403, or an undocumented 404)
+// left the user's existence undecided. The *kind* of probe failure drives what
+// we report: collapsing every failure into codes.Unknown would hide cancellation
+// from errors.Is downstream and discourage the platform from retrying a
+// transient outage that would likely succeed. Classification is in priority
+// order — cancellation, then retryable, then a deliberate indeterminate
+// fallback. restErr is the original REST error.
+func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr error) error {
+	switch {
+	case isProbeCancellation(ctx, existsErr):
+		// The sync was cancelled or timed out while the probe was in flight.
+		// Preserve the context error via %w so errors.Is keeps matching
+		// context.Canceled / context.DeadlineExceeded downstream, instead of
+		// masking cancellation as a generic Unknown.
+		ctxErr := ctx.Err()
+		if ctxErr == nil {
+			ctxErr = existsErr
+		}
+		return fmt.Errorf(
+			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
+			userID, restErr.Error(), ctxErr)
+	case client.IsRetryableError(existsErr):
+		// A transient probe failure. GrpcCodeFromHTTPStatus maps HTTP 429 and 5xx
+		// to codes.Unavailable — except 501, which it special-cases to
+		// codes.Unimplemented ahead of its 500..599 fallback, so a 501 is not
+		// retryable and lands in the Unknown arm below — and HTTP 408 to
+		// codes.DeadlineExceeded.
+		// Preserve the retryable code so the platform re-attempts the deprovision
+		// (which would likely succeed once SCIM is reachable again) rather than
+		// parking it behind a non-retryable Unknown.
+		return status.Errorf(status.Code(existsErr),
+			"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
+			userID, restErr, existsErr)
+	default:
+		// Genuinely indeterminate/non-retryable: return codes.Unknown deliberately
+		// as a chosen "we cannot decide" signal, not whatever errors.As happens to
+		// surface first from two %w-wrapped chains. Both underlying errors are kept
+		// verbatim in the detail text so no diagnostic information is lost.
+		return status.Errorf(codes.Unknown,
+			"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
+			userID, restErr, existsErr)
 	}
 }
 

@@ -33,8 +33,8 @@
 //   - SCIM DELETE returns 404 for an unknown user and 409 for a protected one
 //     ("if the user cannot be deleted (e.g., account owner or default document
 //     owner)" — reference/deleteuser).
-//   - The REST user model exposes `username` (singular) and `enabled`
-//     (reference/getuser), not the `usernames` field the connector currently reads.
+//   - The REST user model exposes `username` (singular) and `enabled`, matching
+//     Lucid's documented shape (reference/getuser).
 //   - SCIM Content-Type and the PatchOp `schemas` URN are ACCEPTED in both the
 //     RFC 7644 form the connector sends and the form Lucid's spec documents, with
 //     a DIVERGENCE line logged for the former. Lucid declares application/json
@@ -69,6 +69,11 @@ const (
 	// scimIDPrefix is the prefix Lucid puts on SCIM resource IDs: the SCIM id for
 	// REST user 1234 is "lucid-1234" (reference/overview-scim, User.id).
 	scimIDPrefix = "lucid-"
+
+	// maxSeedUsers caps POST /_test/users?count= so a mistyped count returns a
+	// 400 instead of OOMing the mock in makeslice. Well above any real
+	// pagination-boundary run (PAG-03 exercises a few thousand).
+	maxSeedUsers = 100_000
 
 	// lucidPageSize is Lucid's page size for paginated REST endpoints. The docs
 	// state a 200-record default and that a larger requested pageSize is clamped
@@ -114,11 +119,10 @@ type config struct {
 
 // user mirrors Lucid's REST User model (reference/getuser).
 //
-// NOTE the field names. Lucid documents `username` (singular) and `enabled`.
-// The connector's client.User reads `usernames` (plural) and has no `enabled`
-// field at all, so both will come through empty/absent on the connector side.
-// That is a real connector defect surfaced by this mock, not a mock bug — do not
-// "fix" it here by renaming these fields to match the connector.
+// NOTE the field names. Lucid documents `username` (singular) and `enabled`
+// (reference/getuser), so this mock serves exactly that shape. Keep them as-is:
+// the mock follows Lucid's published contract, and renaming a field to match a
+// consumer would let the test suite drift from the documented API.
 type user struct {
 	AccountId int      `json:"accountId"`
 	Email     string   `json:"email"`
@@ -220,6 +224,11 @@ func (s *store) seedUsers(n int) {
 			Username:  fmt.Sprintf("user%d@example.com", id),
 			Enabled:   true,
 		})
+	}
+	// Seeded IDs run 1..n. Advance the allocator past them so a subsequent
+	// POST /users can't mint a colliding userId (e.g. -users 2000 then a create).
+	if n > s.nextID {
+		s.nextID = n
 	}
 }
 
@@ -407,8 +416,10 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	// runs without restarting the process.
 	mux.HandleFunc("POST /_test/users", func(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(r.URL.Query().Get("count"))
-		if err != nil || n < 0 {
-			http.Error(w, "count must be a non-negative integer", http.StatusBadRequest)
+		// Cap count so a fat-fingered request fails loudly with a 400 rather than
+		// OOMing the mock in makeslice — the value reaches seedUsers unvalidated.
+		if err != nil || n < 0 || n > maxSeedUsers {
+			http.Error(w, fmt.Sprintf("count must be an integer in [0, %d]", maxSeedUsers), http.StatusBadRequest)
 			return
 		}
 		s.seedUsers(n)
@@ -521,10 +532,10 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	//
 	// Lucid documents 403 — NOT 404 — for a user that does not exist:
 	// "if the user does not belong to the authenticated account or if the user
-	// does not exist" (reference/getuser). The connector's Delete path treats
-	// only 404 as "already deleted", so against the documented behaviour its
-	// idempotent-retry aborts. -legacy-user-404 restores the permissive 404 so a
-	// test can A/B the two.
+	// does not exist" (reference/getuser). This mock returns 403 for unknown
+	// users so the connector's delete path is exercised against the documented
+	// behaviour. -legacy-user-404 restores the permissive 404 so a test can A/B
+	// the two.
 	mux.HandleFunc("GET /v1/users/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !requireRest(w, r) {
 			return
@@ -956,7 +967,7 @@ func run() error {
 		len(s.listUsers()), cfg.pageSize, cfg.legacyUser404, *protected, cfg.transferLimit)
 	if !cfg.legacyUser404 {
 		log.Printf("  NOTE: GET /v1/users/{id} returns 403 for unknown users, per Lucid's docs.")
-		log.Printf("        The connector's Delete path treats only 404 as already-deleted.")
+		log.Printf("        Use -legacy-user-404 to serve the permissive 404 instead.")
 	}
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
