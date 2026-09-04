@@ -11,7 +11,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
-const scimContentType = "application/scim+json"
+// scimContentType is the media type Lucid's SCIM surface documents. Lucid's
+// OpenAPI declares application/json as the request content type for every SCIM
+// operation (modifyuserpatch, modifyuserput, getuser-1, getallusers,
+// createuser-1); "application/scim+json" — the media type RFC 7644 defines —
+// appears in none of Lucid's reference pages. Lucid is the server that
+// validates the request, so we send what Lucid publishes (CXH-2282).
+const scimContentType = "application/json"
 
 const scimOpReplace = "replace"
 
@@ -19,7 +25,13 @@ var (
 	// ScimUserPath is the SCIM 2.0 single-user resource path: /Users/{id}.
 	ScimUserPath = "/Users/%s"
 
-	scimPatchOpSchema = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+	// scimPatchSchema is the value Lucid documents for the required `schemas`
+	// field of a PATCH /Users/{id} body: its requestBody example is
+	// ["urn:ietf:params:scim:schemas:core:2.0:User"]
+	// (https://lucid.readme.io/reference/modifyuserpatch). RFC 7644 puts the
+	// PatchOp URN here instead, but that URN appears in no Lucid reference page,
+	// so we follow the vendor contract (CXH-2282).
+	scimPatchSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
 // scimResourceID converts a bare REST userId (e.g. "101") to the SCIM resource
@@ -47,7 +59,7 @@ type ScimPatchOperation struct {
 var errScimNotConfigured = errors.New("SCIM is not configured: a SCIM bearer token (Enterprise tier) is required for user deprovisioning")
 
 // newScimRequest builds a request against the SCIM base URL using the separate
-// SCIM bearer token and SCIM 2.0 content negotiation.
+// SCIM bearer token and the content negotiation Lucid's SCIM surface documents.
 func (c *LucidchartClient) newScimRequest(
 	ctx context.Context,
 	method string,
@@ -67,8 +79,9 @@ func (c *LucidchartClient) newScimRequest(
 	}
 
 	if body != nil {
-		// WithJSONBody marshals the body and sets application/json; override the
-		// content type afterwards so it wins (SCIM expects application/scim+json).
+		// WithJSONBody marshals the body and sets application/json. Pin the content
+		// type explicitly as well, so the media type Lucid documents is stated at
+		// this call site rather than inherited from an SDK default.
 		options = append(options, uhttp.WithJSONBody(body), uhttp.WithContentType(scimContentType))
 	}
 
@@ -83,7 +96,7 @@ func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, act
 	}
 
 	body := &ScimPatchOp{
-		Schemas: []string{scimPatchOpSchema},
+		Schemas: []string{scimPatchSchema},
 		Operations: []ScimPatchOperation{
 			{Op: scimOpReplace, Path: "active", Value: active},
 		},

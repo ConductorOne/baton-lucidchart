@@ -77,7 +77,18 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "name.familyName", Value: payload.LastName})
 	}
 	if payload.Email != "" {
-		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "emails[primary eq true].value", Value: payload.Email})
+		// Bare attribute path with the full multi-valued replacement, the shape
+		// Lucid documents: its UserOperation.path example is the bare attribute
+		// "roles", and the only documented use of the eq operator is the `filter`
+		// query parameter on GET /Users — no filtered path such as
+		// "emails[primary eq true].value" appears anywhere in Lucid's reference
+		// (CXH-2282). primary marks which address this replaces, matching the
+		// emails entry Lucid returns from GET /Users/{id}.
+		ops = append(ops, ScimPatchOperation{
+			Op:    scimOpReplace,
+			Path:  "emails",
+			Value: []map[string]interface{}{{"value": payload.Email, "primary": true}},
+		})
 	}
 	if payload.Username != "" {
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "userName", Value: payload.Username})
@@ -95,7 +106,7 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 	}
 
 	body := &ScimPatchOp{
-		Schemas:    []string{scimPatchOpSchema},
+		Schemas:    []string{scimPatchSchema},
 		Operations: ops,
 	}
 
