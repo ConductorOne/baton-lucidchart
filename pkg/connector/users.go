@@ -287,9 +287,9 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // otherwise-valid delete). On the documented-but-overloaded 403 an unresolved
 // probe blocks the delete, but the returned gRPC code is classified so callers
 // can react: a cancelled/timed-out probe preserves the context error (so
-// errors.Is still matches), a transient failure (429/5xx surfaces as Unavailable,
-// a 408 as DeadlineExceeded) keeps that retryable code, and only a genuinely
-// indeterminate probe falls through to a deliberate codes.Unknown.
+// errors.Is still matches), a transient failure (429 and 5xx except 501 surface
+// as Unavailable, a 408 as DeadlineExceeded) keeps that retryable code, and only
+// a genuinely indeterminate probe falls through to a deliberate codes.Unknown.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -375,7 +375,11 @@ func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr
 			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
 			userID, restErr.Error(), ctxErr)
 	case client.IsRetryableError(existsErr):
-		// A transient probe failure (429/5xx → Unavailable, 408 → DeadlineExceeded).
+		// A transient probe failure. GrpcCodeFromHTTPStatus maps HTTP 429 and 5xx
+		// to codes.Unavailable — except 501, which it special-cases to
+		// codes.Unimplemented ahead of its 500..599 fallback, so a 501 is not
+		// retryable and lands in the Unknown arm below — and HTTP 408 to
+		// codes.DeadlineExceeded.
 		// Preserve the retryable code so the platform re-attempts the deprovision
 		// (which would likely succeed once SCIM is reachable again) rather than
 		// parking it behind a non-retryable Unknown.
