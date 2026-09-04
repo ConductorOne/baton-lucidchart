@@ -440,7 +440,7 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	// rejects what the real endpoint rejects: a permissive token endpoint has
 	// shipped broken grant_type params to production before.
 	mux.HandleFunc("POST /oauth2/token", func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
+		r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
 		if err := r.ParseForm(); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 			return
