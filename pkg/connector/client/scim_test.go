@@ -95,9 +95,10 @@ func TestUpdateUserSendsDocumentedScimShape(t *testing.T) {
 		if op.Path != "emails" {
 			continue
 		}
-		// Bare path carries the full multi-valued replacement, primary flagged.
+		// Bare path carries the full multi-valued replacement, mirroring the single
+		// entry Lucid returns from GET /Users/{id}.
 		require.Equal(t, []interface{}{
-			map[string]interface{}{"value": "ada@example.com", "primary": true},
+			map[string]interface{}{"value": "ada@example.com", "primary": true, "type": "work"},
 		}, op.Value)
 	}
 }

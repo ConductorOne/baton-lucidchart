@@ -82,12 +82,20 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		// "roles", and the only documented use of the eq operator is the `filter`
 		// query parameter on GET /Users — no filtered path such as
 		// "emails[primary eq true].value" appears anywhere in Lucid's reference
-		// (CXH-2282). primary marks which address this replaces, matching the
-		// emails entry Lucid returns from GET /Users/{id}.
+		// (CXH-2282).
+		//
+		// A replace on a bare multi-valued attribute replaces the whole collection
+		// rather than just the primary entry's value. That is safe here because
+		// Lucid's user model holds exactly one address — the REST User exposes a
+		// single `email`, and GET /Users/{id} returns one emails entry. The entry
+		// mirrors that response, primary and type included, so the record Lucid
+		// echoes back keeps the shape it had.
 		ops = append(ops, ScimPatchOperation{
-			Op:    scimOpReplace,
-			Path:  "emails",
-			Value: []map[string]interface{}{{"value": payload.Email, "primary": true}},
+			Op:   scimOpReplace,
+			Path: "emails",
+			Value: []map[string]interface{}{
+				{"value": payload.Email, "primary": true, "type": "work"},
+			},
 		})
 	}
 	if payload.Username != "" {
