@@ -344,10 +344,18 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 // of it risks destroying content the operator asked to retain. Callers that see
 // true should hand existsErr to classifyProbeFailure for the error to return.
 func probeFailureBlocksDelete(ctx context.Context, existsErr error) bool {
+	return isProbeCancellation(ctx, existsErr) || client.IsRetryableError(existsErr)
+}
+
+// isProbeCancellation reports whether a failed SCIM existence probe failed
+// because the surrounding sync was cancelled or timed out rather than because
+// of anything the probe learned about the user. Shared by the gate
+// (probeFailureBlocksDelete) and the classifier (classifyProbeFailure) so the
+// two cannot drift out of agreement about what counts as cancellation.
+func isProbeCancellation(ctx context.Context, existsErr error) bool {
 	return ctx.Err() != nil ||
 		errors.Is(existsErr, context.Canceled) ||
-		errors.Is(existsErr, context.DeadlineExceeded) ||
-		client.IsRetryableError(existsErr)
+		errors.Is(existsErr, context.DeadlineExceeded)
 }
 
 // classifyProbeFailure turns a failed SCIM existence probe into the gRPC error
@@ -362,9 +370,7 @@ func probeFailureBlocksDelete(ctx context.Context, existsErr error) bool {
 // error.
 func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr error) error {
 	switch {
-	case ctx.Err() != nil ||
-		errors.Is(existsErr, context.Canceled) ||
-		errors.Is(existsErr, context.DeadlineExceeded):
+	case isProbeCancellation(ctx, existsErr):
 		// The sync was cancelled or timed out while the probe was in flight.
 		// Preserve the context error via %w so errors.Is keeps matching
 		// context.Canceled / context.DeadlineExceeded downstream, instead of
