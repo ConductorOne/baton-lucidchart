@@ -178,6 +178,11 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
 		if err != nil {
+			// Lucid's upsert is documented as never returning 409 today, but if it
+			// ever does, treat it as an idempotent success rather than a failure.
+			if client.IsAlreadyExistsError(err) {
+				return nil, annotations.New(&v2.GrantAlreadyExists{}), nil
+			}
 			return nil, nil, err
 		}
 
