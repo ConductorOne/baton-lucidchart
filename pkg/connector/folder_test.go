@@ -100,6 +100,21 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.Nil(t, annos)
 		require.Equal(t, int64(1), cts.putCallCount())
 	})
+
+	// Lucid's upsert is documented as never returning 409 today, but the error
+	// path defensively treats one as an idempotent success rather than a
+	// failure, in case that ever changes upstream.
+	t.Run("upsert 409 is treated as already-exists, not an error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.putStatus = http.StatusConflict
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
 }
 
 func TestFolderRevoke(t *testing.T) {

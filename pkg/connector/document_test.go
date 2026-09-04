@@ -100,6 +100,21 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.Nil(t, annos)
 		require.Equal(t, int64(1), cts.putCallCount())
 	})
+
+	// Lucid's upsert is documented as never returning 409 today, but the error
+	// path defensively treats one as an idempotent success rather than a
+	// failure, in case that ever changes upstream.
+	t.Run("upsert 409 is treated as already-exists, not an error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		cts.putStatus = http.StatusConflict
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.Nil(t, grants)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
 }
 
 func TestDocumentRevoke(t *testing.T) {
