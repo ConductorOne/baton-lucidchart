@@ -272,30 +272,16 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 // transferContentBeforeDelete moves the leaving user's documents to the
 // configured recipient, resolving their email from the REST record first.
 //
-// Lucid's GET /v1/users/{id} documents only 200 and 403; 403 is explicitly the
-// "does not belong to the authenticated account or does not exist" response, and
-// 404 is not a documented response at all. So neither a 403 nor an
-// (undocumented) 404 proves the user is actually gone — both are ambiguous as to
-// absence, and treating either as "gone" outright risks hard-deleting a user
-// whose content we were told to retain. In both cases we ask SCIM (which 404s
-// specifically for absence) before deciding, and refuse the delete only when
-// SCIM affirmatively reports the user still present.
+// GET /v1/users/{id} documents only 200 and 403, where 403 covers both "not
+// permitted" and "does not exist"; an undocumented 404 also occurs. Neither
+// response proves the user is gone, so both ask SCIM (which 404s specifically
+// for absence) and refuse the delete when SCIM reports the user still present.
 //
-// Both paths classify a failed probe the same way, via classifyProbeFailure: a
-// cancelled/timed-out probe preserves the context error (so errors.Is still
-// matches) and a transient failure (429 and 5xx except 501 surface as
-// Unavailable, a 408 as DeadlineExceeded) keeps that retryable code. In either
-// case the delete is aborted — a SCIM outage says nothing about whether the user
-// is still there, and hard-deleting on the strength of an outage is exactly the
-// data loss this path exists to prevent.
-//
-// The two paths differ only in the genuinely indeterminate, non-retryable case
-// (probeFailureBlocksDelete is false). The documented-but-overloaded 403 refuses
-// with a deliberate codes.Unknown, because a 403 is Lucid's normal answer for a
-// user who still exists. The undocumented 404 proceeds to the SCIM delete, which
-// preserves the original rule that a one-off probe failure must not permanently
-// block an otherwise-valid delete; the SCIM delete treats its own 404 as success,
-// so a retry of an already-processed deprovision still converges.
+// A probe that fails without answering that question is gated by
+// probeFailureBlocksDelete: cancelled and transient failures abort the delete
+// via classifyProbeFailure. The paths diverge only on a non-retryable,
+// indeterminate probe failure — 403 returns codes.Unknown, 404 proceeds to the
+// SCIM delete, which treats its own 404 as success so retries converge.
 func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID string) error {
 	fromUser, err := o.client.GetUser(ctx, userID)
 	switch {
@@ -306,17 +292,8 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 		return nil
 
 	case client.IsNotFoundError(err):
-		// REST returned a 404, which Lucid does not document for GET
-		// /v1/users/{id} — that endpoint only documents 200 and 403, and 403 is
-		// its "does not exist" response. A 404 is therefore of unknown meaning,
-		// so we can't assume the user is gone: if it can ever occur for a user
-		// who still exists, proceeding straight to the hard SCIM delete would
-		// destroy content the operator asked to retain. Probe SCIM (which 404s
-		// specifically for absence) and refuse when it affirmatively reports
-		// the user still present — or when the probe fails in a way that says
-		// nothing about their existence (cancelled, or transient and worth
-		// retrying), since deleting on the strength of a SCIM outage is the same
-		// data loss by another route.
+		// A 404 is undocumented for this endpoint and so does not prove absence;
+		// confirm with SCIM before any hard delete.
 		exists, existsErr := o.client.ScimUserExists(ctx, userID)
 		if existsErr != nil && probeFailureBlocksDelete(ctx, existsErr) {
 			return classifyProbeFailure(ctx, userID, err, existsErr)
@@ -330,10 +307,9 @@ func (o *userBuilder) transferContentBeforeDelete(ctx context.Context, userID st
 					"check that the OAuth token carries account.user:readonly and that the user is on this account",
 				userID, err)
 		}
-		// Either SCIM confirms the user is gone, or the probe failed in a
-		// non-retryable, indeterminate way. Proceed to the SCIM delete (which
-		// treats its own 404 as success) so a one-off probe failure cannot
-		// permanently block a valid delete.
+		// SCIM confirms the user is gone, or the probe failed in a non-retryable,
+		// indeterminate way; proceed to the SCIM delete, which treats its own 404
+		// as success.
 		return nil
 
 	case client.IsPermissionDeniedError(err):
