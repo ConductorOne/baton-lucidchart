@@ -946,7 +946,7 @@ func run() error {
 	// Same cap POST /_test/users enforces — otherwise the raw flag value reaches
 	// seedUsers unvalidated and a mistyped -users OOMs the mock in makeslice.
 	if *users < 0 || *users > maxSeedUsers {
-		log.Fatalf("users flag must be in [0, %d]", maxSeedUsers)
+		return fmt.Errorf("users flag must be in [0, %d]", maxSeedUsers)
 	}
 	if *users > 0 {
 		s.seedUsers(*users)
