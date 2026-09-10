@@ -129,6 +129,46 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 	})
 }
 
+// CXH-1919 regression: the upsert-success path used to pass the user principal
+// as NewGrant's first argument, which is what NewEntitlementID is keyed on. That
+// made the same user+role on two different documents produce one identical
+// entitlement ID (user:200:user/comment), so the second grant overwrote the
+// first in C1 instead of being a distinct membership.
+func TestDocumentGrantEntitlementIDIsPerDocument(t *testing.T) {
+	ctx := context.Background()
+
+	// A separate server per document: the mock keys collaborators by user only,
+	// so reusing one would make the second grant hit the no-op pre-check path
+	// instead of the upsert-success path this test needs to exercise.
+	grantOn := func(docID string) *v2.Grant {
+		t.Helper()
+		cts := newCollaboratorTestServer(t, "documents")
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, docID, "comment"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		// Guard that this really is the upsert-success path, not the no-op or 409 branch.
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+		return grants[0]
+	}
+
+	first := grantOn("doc-abc")
+	second := grantOn("doc-xyz")
+
+	require.NotEqual(t, first.Entitlement.Id, second.Entitlement.Id,
+		"same user+role on different documents must not collide on one entitlement ID")
+
+	// The entitlement must be keyed on the document, with the user as principal.
+	require.Equal(t, documentResourceType.Id+":doc-abc:user/comment", first.Entitlement.Id)
+	require.Equal(t, documentResourceType.Id+":doc-xyz:user/comment", second.Entitlement.Id)
+	require.Equal(t, "doc-abc", first.Entitlement.Resource.Id.Resource)
+	require.Equal(t, "doc-xyz", second.Entitlement.Resource.Id.Resource)
+	require.Equal(t, "200", first.Principal.Id.Resource)
+	require.Equal(t, "200", second.Principal.Id.Resource)
+}
+
 func TestDocumentRevoke(t *testing.T) {
 	ctx := context.Background()
 

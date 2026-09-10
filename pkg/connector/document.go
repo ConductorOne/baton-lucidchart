@@ -201,7 +201,11 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 			metaCreated: response.Created.String(),
 		}
 
-		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
+		// The entitlement's resource (the document) is the first argument, not the
+		// principal: NewGrant keys NewEntitlementID on it, so passing the user here
+		// collides across every document the same user holds the same role on.
+		// Matches the pre-check and 409 branches above and what Grants() emits.
+		newGrant := grant.NewGrant(entitlement.Resource, documentHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
 
 		return []*v2.Grant{newGrant}, nil, nil
 	}

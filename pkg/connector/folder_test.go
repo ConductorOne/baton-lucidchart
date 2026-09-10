@@ -129,6 +129,46 @@ func TestFolderGrantIdempotency(t *testing.T) {
 	})
 }
 
+// CXH-1919 regression: the upsert-success path used to pass the user principal
+// as NewGrant's first argument, which is what NewEntitlementID is keyed on. That
+// made the same user+role on two different folders produce one identical
+// entitlement ID (user:100:user/edit), so the second grant overwrote the first
+// in C1 instead of being a distinct membership.
+func TestFolderGrantEntitlementIDIsPerFolder(t *testing.T) {
+	ctx := context.Background()
+
+	// A separate server per folder: the mock keys collaborators by user only, so
+	// reusing one would make the second grant hit the no-op pre-check path
+	// instead of the upsert-success path this test needs to exercise.
+	grantOn := func(folderID string) *v2.Grant {
+		t.Helper()
+		cts := newCollaboratorTestServer(t, "folders")
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, folderID, "edit"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		// Guard that this really is the upsert-success path, not the no-op or 409 branch.
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+		return grants[0]
+	}
+
+	first := grantOn("9001")
+	second := grantOn("9002")
+
+	require.NotEqual(t, first.Entitlement.Id, second.Entitlement.Id,
+		"same user+role on different folders must not collide on one entitlement ID")
+
+	// The entitlement must be keyed on the folder, with the user as principal.
+	require.Equal(t, folderResourceType.Id+":9001:user/edit", first.Entitlement.Id)
+	require.Equal(t, folderResourceType.Id+":9002:user/edit", second.Entitlement.Id)
+	require.Equal(t, "9001", first.Entitlement.Resource.Id.Resource)
+	require.Equal(t, "9002", second.Entitlement.Resource.Id.Resource)
+	require.Equal(t, "100", first.Principal.Id.Resource)
+	require.Equal(t, "100", second.Principal.Id.Resource)
+}
+
 func TestFolderRevoke(t *testing.T) {
 	ctx := context.Background()
 
