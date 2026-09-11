@@ -337,10 +337,11 @@ func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr
 			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %v)",
 			userID, restErr), ctxErr)
 	case client.IsRetryableError(existsErr):
-		// Keep existsErr in the chain so uhttp's rate-limit detail survives.
-		return errors.Join(status.Errorf(status.Code(existsErr),
-			"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
-			userID, restErr, existsErr), existsErr)
+		// Wrap rather than Join: errors.As returns the first status in the
+		// chain, so existsErr's status (and its rate-limit detail) must be it.
+		return fmt.Errorf(
+			"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %w",
+			userID, restErr, existsErr)
 	default:
 		return status.Errorf(codes.Unknown,
 			"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
