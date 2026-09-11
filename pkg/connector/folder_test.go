@@ -160,11 +160,12 @@ func TestFolderGrantIdempotency(t *testing.T) {
 	})
 
 	// The likeliest reading of a real 409 on an upsert is "the user already holds
-	// a *different* role". The decoded record is authoritative, so metaRole must
-	// report the role upstream actually has, not the one we asked for — otherwise
-	// the emitted grant asserts access the user does not hold until the next sync
-	// corrects it.
-	t.Run("upsert 409 carrying a different role reports the conflicting role", func(t *testing.T) {
+	// a *different* role". That is not an idempotent re-grant: the requested role
+	// genuinely was not applied. Since the emitted grant is keyed on
+	// entitlement.Slug (user/edit), reporting GrantAlreadyExists would make C1
+	// materialize an entitlement the user does not hold until the next sync
+	// corrects it. The upsert error must surface instead.
+	t.Run("upsert 409 carrying a different role returns the error", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "folders")
 		cts.roles["100"] = "view" // upstream role, different from the one granted
 		cts.putStatus = http.StatusConflict
@@ -174,15 +175,11 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		// The pre-check GET sees "view" != "edit", so it falls through to the
 		// upsert, which 409s with the conflicting "view" record.
 		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
-		require.NoError(t, err)
-		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
-		require.Len(t, grants, 1)
+		require.Error(t, err, "a 409 naming a different role is a real conflict, not a no-op")
+		require.Nil(t, grants, "no grant may be emitted for a role that was not applied")
+		require.Nil(t, annos)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
 		require.Equal(t, int64(1), cts.putCallCount())
-
-		meta := grantMetadata(t, grants[0])
-		require.Equal(t, "view", meta[metaRole],
-			"metaRole must come from the 409 record, not the requested role")
-		require.Equal(t, "2024-01-01 00:00:00 +0000 UTC", meta[metaCreated])
 	})
 }
 

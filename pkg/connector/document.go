@@ -190,23 +190,20 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
 		if err != nil {
 			// Lucid's upsert is documented as never returning 409 today, but if it
-			// ever does, treat it as an idempotent success rather than a failure.
-			// Return the grant alongside the annotation for the same reason as the
-			// pre-check path above. When Lucid returns the conflicting record in the
-			// 409 body (the upsert decodes it before checking the status), that
-			// record is authoritative: a conflict most likely means the user already
-			// holds a *different* role, so metaRole/metaCreated both come from it.
-			// The requested role is only the fallback for a bare error envelope, and
-			// metaCreated is omitted rather than fabricated from a zero time.
-			if client.IsConflictError(err) {
+			// ever does, treat it as an idempotent success rather than a failure —
+			// but only when the conflict really is about the role we asked for.
+			// When Lucid returns the conflicting record in the 409 body (the upsert
+			// decodes it before checking the status), that record is authoritative.
+			// If it names a *different* role, the requested role genuinely was not
+			// granted: the emitted grant is keyed on entitlement.Slug, so reporting
+			// GrantAlreadyExists would make C1 materialize an entitlement the user
+			// does not hold until the next sync corrects it. Fall through to the
+			// real error in that case. Only a matching or absent role is idempotent,
+			// and metaCreated is omitted rather than fabricated from a zero time.
+			if client.IsConflictError(err) && (response == nil || response.Role == "" || response.Role == role) {
 				metadata := map[string]interface{}{metaRole: role}
-				if response != nil {
-					if response.Role != "" {
-						metadata[metaRole] = response.Role
-					}
-					if !response.Created.IsZero() {
-						metadata[metaCreated] = response.Created.String()
-					}
+				if response != nil && !response.Created.IsZero() {
+					metadata[metaCreated] = response.Created.String()
 				}
 				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
 				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil

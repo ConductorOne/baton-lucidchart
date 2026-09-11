@@ -133,6 +133,10 @@ func (c *LucidchartClient) GetFolderUserCollaborator(ctx context.Context, folder
 	if err != nil {
 		return nil, err
 	}
+	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
+	// TTL, not invalidated by the PUT/DELETE on this same path) so the role
+	// this pre-check compares against is always current.
+	req.Header.Set("Cache-Control", "no-cache")
 
 	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {
@@ -184,6 +188,10 @@ func (c *LucidchartClient) GetDocumentUserCollaborator(ctx context.Context, docu
 	if err != nil {
 		return nil, err
 	}
+	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
+	// TTL, not invalidated by the PUT/DELETE on this same path) so the role
+	// this pre-check compares against is always current.
+	req.Header.Set("Cache-Control", "no-cache")
 
 	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {
