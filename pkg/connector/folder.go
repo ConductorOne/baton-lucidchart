@@ -170,7 +170,7 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// always known; metaCreated comes from the 409 body when Lucid returns
 			// the conflicting record (the upsert decodes the body before checking the
 			// status), and is omitted rather than fabricated when it does not.
-			if client.IsAlreadyExistsError(err) {
+			if client.IsConflictError(err) {
 				metadata := map[string]interface{}{metaRole: role}
 				if response != nil && !response.Created.IsZero() {
 					metadata[metaCreated] = response.Created.String()
