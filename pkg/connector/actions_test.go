@@ -399,6 +399,43 @@ func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
 	require.Equal(t, "email", fields["confirmed_fields"])
 }
 
+// SCIM "emails" is multi-valued. A response carrying both the old and the new
+// address with neither flagged primary makes PrimaryEmail() return the old one,
+// so comparing against that single pick would fail an update that landed.
+func TestUpdateUserHandler_EmailMatchedAcrossAllEntries(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"old@example.com"},{"value":"new@example.com"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"new@example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "email", fields["confirmed_fields"])
+}
+
+// The requested address appearing in no entry at all is the only thing that
+// makes email a contradiction.
+func TestUpdateUserHandler_EmailAbsentFromAllEntriesIsContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"old@example.com"},{"value":"other@example.com"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"new@example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.Error(t, err)
+	require.Nil(t, res)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
 // An attribute Lucid omitted must never help condemn the update. Here firstName
 // is contradicted and roles is simply absent, so the roles half may well have
 // landed — failing terminally would strand it on every retry.

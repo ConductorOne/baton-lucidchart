@@ -290,7 +290,7 @@ func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUs
 	if confirmed.Name != nil && matches(payload.LastName, confirmed.Name.FamilyName) {
 		out = append(out, "lastName")
 	}
-	if matches(payload.Email, confirmed.PrimaryEmail()) {
+	if payload.Email != "" && hasEmail(confirmed, payload.Email) {
 		out = append(out, "email")
 	}
 	if matches(payload.Username, confirmed.UserName) {
@@ -337,7 +337,7 @@ func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.Sci
 	if confirmed.Name != nil && differs(payload.LastName, confirmed.Name.FamilyName) {
 		out = append(out, "lastName")
 	}
-	if differs(payload.Email, confirmed.PrimaryEmail()) {
+	if payload.Email != "" && len(confirmed.Emails) > 0 && !hasEmail(confirmed, payload.Email) {
 		out = append(out, "email")
 	}
 	if differs(payload.Username, confirmed.UserName) {
@@ -347,6 +347,21 @@ func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.Sci
 		out = append(out, "roles")
 	}
 	return out
+}
+
+// hasEmail reports whether want appears anywhere in Lucid's echoed emails,
+// ignoring case. SCIM "emails" is multi-valued, so the confirm/contradict
+// comparison must look at every entry rather than at PrimaryEmail()'s single
+// pick: a response carrying both the old and new address with neither flagged
+// primary makes that pick the *old* one, which would read as a contradiction of
+// an update that landed. PrimaryEmail() stays the right choice for display.
+func hasEmail(confirmed *client.ScimUser, want string) bool {
+	for _, e := range confirmed.Emails {
+		if strings.EqualFold(e.Value, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // containsAllRoles reports whether every requested role is present in got. It is
