@@ -55,6 +55,13 @@ type collaboratorTestServer struct {
 	// setup, before any request is issued, so there is no concurrent access.
 	getStatus int64 // when non-zero, the single-collaborator GET returns this status
 	putStatus int64 // when non-zero, the upsert PUT returns this status
+
+	// When non-zero, the injected putStatus failure responds with the conflicting
+	// collaborator record (JSON content type) instead of a bare error envelope.
+	// Lucid's upsert is not documented to return 409 at all, so whether a real one
+	// would carry the record is unknown; this models the case where it does, which
+	// is the only case from which the error path can salvage metaCreated.
+	putErrorReturnsRecord int64
 }
 
 // putCallCount returns the number of times the upsert PUT was invoked. Reads go
@@ -158,6 +165,18 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 
 		if s := atomic.LoadInt64(&cts.putStatus); s != 0 {
 			// Fault injection: simulate the upsert itself failing (e.g. 409).
+			if atomic.LoadInt64(&cts.putErrorReturnsRecord) != 0 {
+				// The failure body carries the conflicting record. The upsert decodes
+				// the body before the status check, so the connector can still read
+				// created off it.
+				role, ok := cts.getRole(uid)
+				if !ok {
+					role = body.Role
+				}
+				cts.writeCollaboratorStatus(w, int(s), kind, r.PathValue("id"), uid, role)
+				return
+			}
+			// Bare error envelope, with no content type: nothing decodes.
 			w.WriteHeader(int(s))
 			_, _ = w.Write([]byte(`{"code":` + strconv.FormatInt(s, 10) + `,"message":"injected"}`))
 			return
@@ -186,9 +205,15 @@ func newCollaboratorTestServer(t *testing.T, kind string) *collaboratorTestServe
 }
 
 func (cts *collaboratorTestServer) writeCollaborator(w http.ResponseWriter, kind, objID, uid, role string) {
+	cts.writeCollaboratorStatus(w, http.StatusOK, kind, objID, uid, role)
+}
+
+// writeCollaboratorStatus writes the collaborator record under an arbitrary
+// status, so the 409 fault injection can return the same shape a 200 would.
+func (cts *collaboratorTestServer) writeCollaboratorStatus(w http.ResponseWriter, status int, kind, objID, uid, role string) {
 	uidInt, _ := strconv.Atoi(uid)
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 
 	if kind == "documents" {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{

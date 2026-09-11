@@ -121,11 +121,42 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.Equal(t, "doc-abc", grants[0].Entitlement.Resource.Id.Resource)
 		require.Equal(t, "200", grants[0].Principal.Id.Resource)
 
-		// metaRole is knowable from the entitlement; metaCreated is not available
-		// on the error path, so it is omitted rather than fabricated.
+		// metaRole is knowable from the entitlement. This 409 body is a bare error
+		// envelope with no record in it, so metaCreated is omitted rather than
+		// fabricated from a zero time.
 		meta := grantMetadata(t, grants[0])
 		require.Equal(t, "comment", meta[metaRole])
 		require.NotContains(t, meta, metaCreated)
+	})
+
+	// When the 409 body does carry the conflicting record, the upsert decodes it
+	// before checking the status, so the no-op grant can carry the same
+	// metaRole/metaCreated pair Grants() and the pre-check path emit.
+	t.Run("upsert 409 carrying the record attaches metaCreated", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		cts.putStatus = http.StatusConflict
+		cts.putErrorReturnsRecord = 1
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Len(t, grants, 1)
+
+		meta := grantMetadata(t, grants[0])
+		require.Equal(t, "comment", meta[metaRole])
+		require.Equal(t, "2024-01-01 00:00:00 +0000 UTC", meta[metaCreated],
+			"metaCreated must come from the 409 body, not a zero time")
+
+		// The 409 metadata must match what the pre-check no-op path emits for the
+		// same collaborator record, so C1 sees no metadata churn between them.
+		noopCts := newCollaboratorTestServer(t, "documents")
+		noopCts.roles["200"] = "comment"
+		noopB := &documentBuilder{client: newTestClient(t, noopCts.server.URL)}
+		noopGrants, _, err := noopB.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.Len(t, noopGrants, 1)
+		require.Equal(t, grantMetadata(t, noopGrants[0]), meta)
 	})
 }
 

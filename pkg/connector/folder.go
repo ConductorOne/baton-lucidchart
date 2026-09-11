@@ -166,10 +166,15 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// Lucid's upsert is documented as never returning 409 today, but if it
 			// ever does, treat it as an idempotent success rather than a failure.
 			// Return the grant alongside the annotation for the same reason as the
-			// pre-check path above. metaCreated is unavailable on this error path;
-			// metaRole is the entitlement's own role, so it is known.
+			// pre-check path above. metaRole is the entitlement's own role, so it is
+			// always known; metaCreated comes from the 409 body when Lucid returns
+			// the conflicting record (the upsert decodes the body before checking the
+			// status), and is omitted rather than fabricated when it does not.
 			if client.IsAlreadyExistsError(err) {
 				metadata := map[string]interface{}{metaRole: role}
+				if response != nil && !response.Created.IsZero() {
+					metadata[metaCreated] = response.Created.String()
+				}
 				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
 				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
 			}
