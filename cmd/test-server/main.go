@@ -35,15 +35,9 @@
 //     owner)" — reference/deleteuser).
 //   - The REST user model exposes `username` (singular) and `enabled`
 //     (reference/getuser), not the `usernames` field the connector currently reads.
-//   - The SCIM Content-Type, the PatchOp `schemas` URN and PATCH operation paths
-//     are ACCEPTED in both the RFC 7644 form and the form Lucid's spec documents,
-//     with a DIVERGENCE line logged for the former. Lucid declares
-//     application/json, a core-User schemas example and a bare attribute path;
-//     "application/scim+json", the PatchOp URN and any value-filtered path appear
-//     in zero Lucid doc pages. The docs and the RFC genuinely disagree, so failing
-//     by default would over-claim — use -strict-scim-doc to enforce Lucid's
-//     documented shape. As of CXH-2282 the connector sends the documented shape,
-//     so -strict-scim-doc passes; it stays as the regression oracle.
+//   - The SCIM Content-Type, PatchOp `schemas` URN, and PATCH operation paths
+//     accept both the RFC 7644 form and the form Lucid's spec documents, logging
+//     a DIVERGENCE for the RFC form. Use -strict-scim-doc to reject it instead.
 //   - Errors use Lucid's envelope {code, message, requestId} (reference-rest).
 //   - GET /users paginates via an opaque pageToken carried in the Link header,
 //     200 records per page (reference-rest).
@@ -77,18 +71,13 @@ const (
 	// to 200 (reference-rest).
 	lucidPageSize = 200
 
-	// docContentType is what Lucid's OpenAPI declares for every SCIM operation,
-	// and what the connector sends as of CXH-2282. scimContentType is the RFC 7644
-	// form the connector sent before that; it appears in ZERO Lucid doc pages and
-	// is still accepted here so an A/B against the pre-CXH-2282 shape works.
-	// -strict-scim-doc rejects it.
+	// docContentType is what Lucid's OpenAPI declares for SCIM operations.
+	// scimContentType is the RFC 7644 form, still accepted unless -strict-scim-doc.
 	scimContentType = "application/scim+json"
 	docContentType  = "application/json"
 
-	// docPatchSchema is the value Lucid's PATCH requestBody gives as its example,
-	// and what the connector sends as of CXH-2282. scimPatchOpSchema is the RFC
-	// 7644 PatchOp URN it sent before that; it appears in ZERO Lucid doc pages and
-	// is still accepted here for the same A/B reason. -strict-scim-doc rejects it.
+	// docPatchSchema is the `schemas` value Lucid's PATCH example uses.
+	// scimPatchOpSchema is the RFC 7644 PatchOp URN, still accepted unless -strict-scim-doc.
 	scimPatchOpSchema = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
 	docPatchSchema    = "urn:ietf:params:scim:schemas:core:2.0:User"
 
@@ -308,11 +297,9 @@ func parseScimID(scimID string) (int, bool) {
 	return id, true
 }
 
-// primaryEmailFromPatchValue extracts the address a PATCH `emails` operation
-// sets: the entry flagged primary, else the first usable one. A bare string is
-// accepted too, since Lucid's reference never spells out the PATCH value shape
-// for a multi-valued attribute. ok is false when the value carries no usable
-// address, which the handler rejects rather than silently no-opping.
+// primaryEmailFromPatchValue extracts the address from a PATCH `emails` value:
+// the primary entry, else the first usable one, or a bare string. ok is false
+// if no usable address is found.
 func primaryEmailFromPatchValue(v interface{}) (string, bool) {
 	if s, ok := v.(string); ok && s != "" {
 		return s, true
@@ -369,11 +356,7 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeSCIMJSON emits a SCIM response using docContentType: Lucid's OpenAPI
-// declares application/json for every SCIM operation, so the mock should not
-// answer with the media type this file documents as appearing in zero Lucid
-// pages. The connector reads no SCIM response body today, so this is fidelity
-// rather than something it can observe.
+// writeSCIMJSON emits a SCIM response with the Content-Type Lucid documents.
 func writeSCIMJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set("Content-Type", docContentType)
 	w.WriteHeader(code)
@@ -763,11 +746,8 @@ func newMux(s *store, cfg config) *http.ServeMux {
 		}
 		id := r.PathValue("id")
 
-		// Content-Type. Lucid's OpenAPI declares application/json for every SCIM
-		// operation, which is what the connector sends as of CXH-2282; RFC 7644
-		// mandates application/scim+json, the form it sent before. Accept both and
-		// say which arrived, so the divergence stays visible without inventing a
-		// verdict the docs cannot settle.
+		// Accept both Content-Type forms and log which arrived; -strict-scim-doc
+		// enforces Lucid's documented application/json.
 		ct := r.Header.Get("Content-Type")
 		switch {
 		case strings.HasPrefix(ct, docContentType):
@@ -798,12 +778,8 @@ func newMux(s *store, cfg config) *http.ServeMux {
 			writeLucidError(w, http.StatusBadRequest, "badRequest", "malformed PatchOp body")
 			return
 		}
-		// schemas. Lucid's PATCH requestBody requires it and gives
-		// urn:ietf:params:scim:schemas:core:2.0:User as its example, which is what
-		// the connector sends as of CXH-2282; RFC 7644 says a PatchOp body carries
-		// the PatchOp URN, the form it sent before. Same unresolvable disagreement
-		// as Content-Type — accept both, log which, and only reject under
-		// -strict-scim-doc.
+		// Same as Content-Type: accept both `schemas` forms, reject the RFC form
+		// only under -strict-scim-doc.
 		if len(body.Schemas) == 0 {
 			writeLucidError(w, http.StatusBadRequest, "badRequest", "schemas is required")
 			return
@@ -827,13 +803,8 @@ func newMux(s *store, cfg config) *http.ServeMux {
 			writeLucidError(w, http.StatusBadRequest, "badRequest", "Operations must not be empty")
 			return
 		}
-		// Operation paths. Lucid's UserOperation.path example is the bare attribute
-		// "roles", and the only place it documents the eq operator is the `filter`
-		// QUERY parameter on GET /Users — a value-filtered path such as
-		// "emails[primary eq true].value" appears in ZERO Lucid doc pages, while
-		// RFC 7644 §3.5.2 allows one. Same unresolvable disagreement as the two
-		// above: accept both, log the divergence, reject only under
-		// -strict-scim-doc.
+		// Same again for operation paths: Lucid documents only bare attribute paths
+		// (e.g. "roles"), not SCIM value filters like "emails[primary eq true].value".
 		for _, op := range body.Operations {
 			if strings.ContainsAny(op.Path, "[]") {
 				log.Printf("DIVERGENCE: PATCH path %q uses a SCIM value filter; Lucid documents "+
@@ -846,10 +817,8 @@ func newMux(s *store, cfg config) *http.ServeMux {
 				}
 				continue
 			}
-			// A bare `emails` replace has to carry a usable address. Letting a
-			// malformed value fall through would return 200 with the address
-			// unchanged, so a regression in the connector's value shape would read
-			// as success against the very oracle meant to catch it.
+			// Reject a malformed `emails` value here instead of letting it silently
+			// no-op with a 200.
 			isWrite := strings.EqualFold(op.Op, "replace") || strings.EqualFold(op.Op, "add")
 			if op.Path == "emails" && isWrite {
 				if _, ok := primaryEmailFromPatchValue(op.Value); !ok {
@@ -885,19 +854,13 @@ func newMux(s *store, cfg config) *http.ServeMux {
 						applied = append(applied, "name.familyName")
 					}
 				case "emails":
-					// The shape Lucid documents: a bare attribute path carrying the
-					// full multi-valued replacement. The pre-pass above already
-					// rejected a value with no usable address, so this cannot
-					// silently no-op.
+					// Bare attribute path, the shape Lucid documents.
 					if v, ok := primaryEmailFromPatchValue(op.Value); ok {
 						u.Email = v
 						applied = append(applied, "emails")
 					}
 				case "emails[primary eq true].value":
-					// The RFC 7644 filtered form. Only reachable when
-					// -strict-scim-doc is off (the pre-pass above rejects it under
-					// strict); kept so an A/B against the pre-CXH-2282 wire shape
-					// still exercises this handler.
+					// RFC 7644's filtered form; only reachable with -strict-scim-doc off.
 					if v, ok := op.Value.(string); ok {
 						u.Email = v
 						applied = append(applied, "emails")
@@ -1010,8 +973,7 @@ func run() error {
 	scimToken := flag.String("scim-token", "test-scim-token", "bearer token the SCIM surface requires; must match --lucid-scim-token")
 	strictSCIMDoc := flag.Bool("strict-scim-doc", false,
 		"reject SCIM requests that follow RFC 7644 where Lucid's spec documents otherwise "+
-			"(application/json Content-Type, core-User schemas URN, bare attribute paths); "+
-			"the connector sends Lucid's documented shape as of CXH-2282, so this should pass")
+			"(Content-Type, schemas URN, attribute paths)")
 	flag.Parse()
 
 	s := newStore()

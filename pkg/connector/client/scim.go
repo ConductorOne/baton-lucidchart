@@ -11,12 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
-// scimContentType is the media type Lucid's SCIM surface documents. Lucid's
-// OpenAPI declares application/json as the request content type for every SCIM
-// operation (modifyuserpatch, modifyuserput, getuser-1, getallusers,
-// createuser-1); "application/scim+json" — the media type RFC 7644 defines —
-// appears in none of Lucid's reference pages. Lucid is the server that
-// validates the request, so we send what Lucid publishes (CXH-2282).
+// scimContentType is the media type Lucid's SCIM surface documents.
+// RFC 7644's "application/scim+json" appears nowhere in Lucid's reference.
 const scimContentType = "application/json"
 
 const scimOpReplace = "replace"
@@ -25,12 +21,8 @@ var (
 	// ScimUserPath is the SCIM 2.0 single-user resource path: /Users/{id}.
 	ScimUserPath = "/Users/%s"
 
-	// scimPatchSchema is the value Lucid documents for the required `schemas`
-	// field of a PATCH /Users/{id} body: its requestBody example is
-	// ["urn:ietf:params:scim:schemas:core:2.0:User"]
-	// (https://lucid.readme.io/reference/modifyuserpatch). RFC 7644 puts the
-	// PatchOp URN here instead, but that URN appears in no Lucid reference page,
-	// so we follow the vendor contract (CXH-2282).
+	// scimPatchSchema is the `schemas` value Lucid documents for a PATCH
+	// /Users/{id} body, in place of RFC 7644's PatchOp URN.
 	scimPatchSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
@@ -79,9 +71,7 @@ func (c *LucidchartClient) newScimRequest(
 	}
 
 	if body != nil {
-		// WithJSONBody marshals the body and sets application/json. Pin the content
-		// type explicitly as well, so the media type Lucid documents is stated at
-		// this call site rather than inherited from an SDK default.
+		// WithJSONBody already sets application/json; pin it explicitly too.
 		options = append(options, uhttp.WithJSONBody(body), uhttp.WithContentType(scimContentType))
 	}
 

@@ -77,19 +77,9 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "name.familyName", Value: payload.LastName})
 	}
 	if payload.Email != "" {
-		// Bare attribute path with the full multi-valued replacement, the shape
-		// Lucid documents: its UserOperation.path example is the bare attribute
-		// "roles", and the only documented use of the eq operator is the `filter`
-		// query parameter on GET /Users — no filtered path such as
-		// "emails[primary eq true].value" appears anywhere in Lucid's reference
-		// (CXH-2282).
-		//
-		// A replace on a bare multi-valued attribute replaces the whole collection
-		// rather than just the primary entry's value. That is safe here because
-		// Lucid's user model holds exactly one address — the REST User exposes a
-		// single `email`, and GET /Users/{id} returns one emails entry. The entry
-		// mirrors that response, primary and type included, so the record Lucid
-		// echoes back keeps the shape it had.
+		// Bare "emails" path with a full replacement value, the shape Lucid
+		// documents (it has no filtered-path example). This replaces the whole
+		// collection, which is safe since Lucid's user model holds one address.
 		ops = append(ops, ScimPatchOperation{
 			Op:   scimOpReplace,
 			Path: "emails",

@@ -43,9 +43,7 @@ func TestSetUserActive(t *testing.T) {
 
 	require.Equal(t, http.MethodPatch, gotMethod)
 	require.Equal(t, "/Users/lucid-123", gotPath)
-	// Literal values, not the constants, so a change to the wire shape has to be
-	// made deliberately in two places. These are the values Lucid documents; see
-	// CXH-2282 for why they win over the RFC 7644 forms.
+	// Literal values, not the constants, so a wire-shape change must be deliberate.
 	require.Equal(t, "application/json", gotContentType)
 	require.Equal(t, "Bearer scim-test-token", gotAuth)
 	require.Equal(t, []string{"urn:ietf:params:scim:schemas:core:2.0:User"}, body.Schemas)
@@ -55,9 +53,8 @@ func TestSetUserActive(t *testing.T) {
 	require.Equal(t, false, body.Operations[0].Value)
 }
 
-// TestUpdateUserSendsDocumentedScimShape pins every construct CXH-2282 covers:
-// Lucid's documented Content-Type and Accept, its documented `schemas` URN, and
-// bare attribute paths with no SCIM value filter anywhere in the body.
+// TestUpdateUserSendsDocumentedScimShape pins the documented Content-Type,
+// Accept, `schemas` URN, and bare (non-filtered) attribute paths.
 func TestUpdateUserSendsDocumentedScimShape(t *testing.T) {
 	var gotContentType, gotAccept string
 	var body ScimPatchOp
