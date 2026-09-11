@@ -95,9 +95,11 @@ var updateUserSchema = &v2.BatonActionSchema{
 			Name:        retConfirmedFields,
 			DisplayName: "SCIM-Confirmed Fields",
 			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
-				"Omitted entirely when Lucid answered without a resource body and so confirmed nothing. Present but empty " +
-				"when Lucid returned a resource body that echoed none of the requested attributes back. When Lucid echoes " +
-				"attributes back and contradicts every one of them, nothing landed and the action fails instead.",
+				"Text is matched ignoring case, and roles count as confirmed when the requested ones are all present, since " +
+				"Lucid may return an effective role set carrying extras. Omitted entirely when Lucid answered without a " +
+				"resource body and so confirmed nothing. Present but empty when Lucid returned a resource body that echoed " +
+				"none of the requested attributes back. When Lucid echoes attributes back and contradicts every one of " +
+				"them, nothing landed and the action fails instead.",
 			Field: &config.Field_StringField{},
 		},
 	},

@@ -377,8 +377,9 @@ func TestUpdateUserHandler_MissingRequestedRoleIsContradiction(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
-// Lucid normalizing the case of an identifier is not a contradiction. The update
-// landed, so the action must not fail — confirmed_fields simply stays empty.
+// Lucid normalizing the case of an identifier is not a contradiction. Both
+// halves compare case-insensitively, so the address reads as confirmed rather
+// than falling between the two and reporting an empty confirmed_fields.
 func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
 	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"ada@example.com","primary":true}]}`))
 

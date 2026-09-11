@@ -221,12 +221,6 @@ func (c *LucidchartClient) ScimBaseURLErr() error {
 	return c.scimBaseURLErr
 }
 
-// ScimUsable reports whether a SCIM call can actually be made: a token is
-// configured and the SCIM base URL was accepted.
-func (c *LucidchartClient) ScimUsable() bool {
-	return c.ScimConfigured() && c.scimBaseURLErr == nil
-}
-
 // ScimConfigured reports whether the admin-management SCIM bearer token was
 // supplied. The SCIM deprovisioning operations require Lucid Enterprise tier
 // and a separate token.
