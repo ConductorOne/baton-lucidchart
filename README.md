@@ -46,7 +46,7 @@ The last two flags are optional and can be omitted entirely; `--exclude-shortcut
 | Mode | Flags | When |
 | :--- | :--- | :--- |
 | Self-hosted / CLI | `--lucid-client-id`, `--lucid-client-secret`, `--lucid-refresh-token` | Running the binary yourself. The connector exchanges the refresh token against `https://api.lucid.co/oauth2/token`. |
-| C1-hosted | `--oauth2` | Running inside ConductorOne. The SDK supplies the token source; the client/secret/refresh flags are unused. |
+| C1-hosted | `--oauth2` | Running inside ConductorOne. The SDK supplies the token source. The client/secret flags are unused, and `--lucid-refresh-token` must be left empty — setting it switches the connector back to self-hosted mode. |
 
 The selector is `--lucid-refresh-token`, not `--oauth2`: the C1-hosted token source is used only when the refresh token is empty. If both are supplied, refresh-token mode wins and the SDK token source is ignored.
 
