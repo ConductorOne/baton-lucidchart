@@ -13,7 +13,7 @@ type User struct {
 	Email     string   `json:"email"`
 	Name      string   `json:"name"`
 	UserId    int      `json:"userId"`
-	Usernames string   `json:"usernames"`
+	Usernames string   `json:"usernames"` // TODO: probably should be removed, "usernames" is not a real Lucid field.
 	Username  string   `json:"username"`
 	Enabled   *bool    `json:"enabled"`
 	Roles     []string `json:"roles"`
