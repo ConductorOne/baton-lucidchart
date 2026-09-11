@@ -61,6 +61,8 @@ Lucid publishes no fixed FedRAMP SCIM hostname. Unlike the REST API, which simpl
 
 Both SCIM bearer tokens are sent to whatever host `scim-base-url` names, so the connector rejects a value that isn't an `https://` URL on a Lucid-owned domain — `lucid.app`, `lucidgov.app`, `lucid.co`, or a subdomain of one. A GovSuite URL copied from your admin panel already satisfies this. The one exception is a loopback host (`localhost` or `127.0.0.1`), which is accepted over plain `http` so the connector can be pointed at a local test server; a non-loopback mock host is not accepted.
 
+A rejected value disables the SCIM surface — actions, deprovisioning and delete — and logs a warning naming the problem. Syncing is unaffected, since it runs against the REST API under `base-url` and never reads this setting. If SCIM operations fail with an error naming `scim-base-url`, correct the value rather than the tokens.
+
 ## Gather Lucidchart credentials 
 
 Each setup method requires you to pass in credentials generated in Lucidchart. Gather these credentials before you move on. 

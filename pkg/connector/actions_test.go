@@ -337,6 +337,56 @@ func TestUpdateUserHandler_ResponseBodyContradictingEverything_ReturnsFailedPrec
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
+// A "replace" on roles that landed can still echo back an effective set that
+// carries an implicit or default role. Extra roles are not a rejection of the
+// request, so a roles-only update must not fail on them.
+func TestUpdateUserHandler_ExtraRolesInResponseAreNotContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"},{"value":"DocumentAdmin"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+	require.Equal(t, true, res.AsMap()["success"])
+}
+
+// A role Lucid did not apply is absent from the response, and that is the only
+// thing that counts as a contradiction for roles.
+func TestUpdateUserHandler_MissingRequestedRoleIsContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["DocumentAdmin"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.Error(t, err)
+	require.Nil(t, res)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+// Lucid normalizing the case of an identifier is not a contradiction. The update
+// landed, so the action must not fail — confirmed_fields simply stays empty.
+func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"ada@example.com","primary":true}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"Ada@Example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+	require.Equal(t, true, res.AsMap()["success"])
+}
+
 // A contradiction on one attribute while others landed is a partial update, not
 // a no-op: confirmed_fields already reports exactly which changes took, and
 // failing the whole action would discard that.

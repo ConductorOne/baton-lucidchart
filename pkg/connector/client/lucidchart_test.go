@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -42,9 +43,10 @@ func TestExtractPageToken(t *testing.T) {
 	}
 }
 
-// scim-base-url is customer-settable, so the construction-time check is the only
-// thing standing between a typo and either Enterprise SCIM tokens on a cleartext
-// wire or a confusing failure at request time.
+// scim-base-url is customer-settable, so this check is the only thing standing
+// between a typo and either Enterprise SCIM tokens on a cleartext wire or a
+// confusing failure at request time. A rejection disables the SCIM surface; it
+// deliberately does not fail construction, which would take sync down with it.
 func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 	cases := []struct {
 		Name        string
@@ -125,23 +127,33 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 	for _, s := range cases {
 		t.Run(s.Name, func(t *testing.T) {
 			c, err := NewLucidchartClient(context.Background(), "api-key", ts, "", "scim-test-token", s.ScimBaseURL, "")
+			// Construction always succeeds: a rejected SCIM URL disables SCIM,
+			// it does not take the connector (and with it sync) down.
+			require.NoError(t, err)
+			require.NotNil(t, c)
+
 			if s.ExpectedError {
-				require.Error(t, err)
-				require.Nil(t, c)
+				require.Error(t, c.scimBaseURLErr)
 				// The message must name both the offending value and the flag.
-				require.Contains(t, err.Error(), s.ScimBaseURL)
-				require.Contains(t, err.Error(), "scim-base-url")
+				require.Contains(t, c.scimBaseURLErr.Error(), s.ScimBaseURL)
+				require.Contains(t, c.scimBaseURLErr.Error(), "scim-base-url")
 
 				// A rejected host is only actionable if the message says which
 				// domains would have been accepted.
 				for _, name := range s.ExpectedErrorNames {
-					require.Contains(t, err.Error(), name)
+					require.Contains(t, c.scimBaseURLErr.Error(), name)
 				}
+
+				// No SCIM request may be built while the URL is rejected — that is
+				// what keeps the bearer token away from the host it named.
+				req, reqErr := c.newScimRequestWithToken(context.Background(), "scim-test-token", http.MethodGet, "/Users/7", nil)
+				require.Error(t, reqErr)
+				require.Nil(t, req)
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, c.scimBaseURLErr)
 			require.Equal(t, s.ExpectedScimBaseURL, c.scimBaseURL)
 		})
 	}

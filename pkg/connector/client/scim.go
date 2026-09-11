@@ -162,6 +162,14 @@ func (c *LucidchartClient) newScimRequestWithToken(
 	path string,
 	body interface{},
 ) (*http.Request, error) {
+	// A scim-base-url that failed validation disables the SCIM surface. Refuse
+	// here rather than at construction time, so a bad SCIM URL costs SCIM and not
+	// the whole connector — and refuse before any request is built, so no bearer
+	// token is ever addressed to the rejected host.
+	if c.scimBaseURLErr != nil {
+		return nil, c.scimBaseURLErr
+	}
+
 	urlAddress, err := url.Parse(c.scimBaseURL)
 	if err != nil {
 		return nil, err

@@ -300,28 +300,57 @@ func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUs
 // information either way; treating that as a contradiction would fail updates
 // that did land. Absence is reported by leaving the field out of
 // confirmedFields instead.
+//
+// Its comparisons are deliberately laxer than confirmedFields'. Failing to
+// confirm a change costs an empty entry in confirmed_fields; wrongly declaring
+// one contradicted fails the whole action, so anything short of demonstrable
+// disagreement is left alone: strings compare case-insensitively (SCIM servers
+// normalize case on identifiers), and roles count as contradicted only when a
+// requested role is missing from the response, never when Lucid returns extra
+// ones — a "replace" that lands can still echo an effective set carrying an
+// implicit or default role.
 func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
 	if confirmed.IsZero() {
 		return nil
 	}
 
+	differs := func(requested, got string) bool {
+		return requested != "" && got != "" && !strings.EqualFold(requested, got)
+	}
+
 	var out []string
-	if payload.FirstName != "" && confirmed.Name != nil && confirmed.Name.GivenName != "" && confirmed.Name.GivenName != payload.FirstName {
+	if confirmed.Name != nil && differs(payload.FirstName, confirmed.Name.GivenName) {
 		out = append(out, "firstName")
 	}
-	if payload.LastName != "" && confirmed.Name != nil && confirmed.Name.FamilyName != "" && confirmed.Name.FamilyName != payload.LastName {
+	if confirmed.Name != nil && differs(payload.LastName, confirmed.Name.FamilyName) {
 		out = append(out, "lastName")
 	}
-	if payload.Email != "" && confirmed.PrimaryEmail() != "" && confirmed.PrimaryEmail() != payload.Email {
+	if differs(payload.Email, confirmed.PrimaryEmail()) {
 		out = append(out, "email")
 	}
-	if payload.Username != "" && confirmed.UserName != "" && confirmed.UserName != payload.Username {
+	if differs(payload.Username, confirmed.UserName) {
 		out = append(out, "username")
 	}
-	if len(payload.Roles) > 0 && len(confirmed.RoleValues()) > 0 && !sameRoles(payload.Roles, confirmed.RoleValues()) {
+	if got := confirmed.RoleValues(); len(payload.Roles) > 0 && len(got) > 0 && !containsAllRoles(got, payload.Roles) {
 		out = append(out, "roles")
 	}
 	return out
+}
+
+// containsAllRoles reports whether every requested role is present in got. It is
+// a subset test, not set equality: Lucid echoing back roles beyond the ones that
+// were requested is an effective role set, not a rejection of the request.
+func containsAllRoles(got, requested []string) bool {
+	have := make(map[string]struct{}, len(got))
+	for _, r := range got {
+		have[strings.ToLower(r)] = struct{}{}
+	}
+	for _, r := range requested {
+		if _, ok := have[strings.ToLower(r)]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // sameRoles compares two role sets irrespective of order; SCIM does not

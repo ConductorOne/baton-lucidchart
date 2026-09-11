@@ -11,6 +11,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 )
 
@@ -61,6 +62,11 @@ type LucidchartClient struct {
 	// scimBaseURL is the SCIM 2.0 base URL, shared by both integrations.
 	// Defaults to LucidScimUrl.
 	scimBaseURL string
+	// scimBaseURLErr records why a caller-supplied scim-base-url was rejected.
+	// It disables the SCIM surface instead of failing construction: sync runs
+	// entirely on the REST API and has no business dying because the separate
+	// SCIM URL is wrong. Every SCIM request returns this instead.
+	scimBaseURLErr error
 }
 
 func NewLucidchartClient(
@@ -83,10 +89,20 @@ func NewLucidchartClient(
 		baseURL = string(LucidchartApiUrl)
 	}
 
+	// A rejected scim-base-url disables SCIM rather than failing construction.
+	// connector.New turns a constructor error into a dead connector, and sync
+	// talks only to the REST API under base-url — so failing hard here would take
+	// down read-only syncing over a setting it never reads. The tokens are still
+	// protected: no SCIM request is built at all while this is set.
+	var scimBaseURLErr error
 	if scimBaseURL == "" {
 		scimBaseURL = string(LucidScimUrl)
 	} else if err := validateScimBaseURL(scimBaseURL); err != nil {
-		return nil, err
+		scimBaseURLErr = err
+		ctxzap.Extract(ctx).Warn(
+			"baton-lucidchart: scim-base-url rejected; SCIM actions and deprovisioning are disabled, sync is unaffected",
+			zap.Error(err),
+		)
 	}
 
 	return &LucidchartClient{
@@ -97,6 +113,7 @@ func NewLucidchartClient(
 		scimToken:        scimToken,
 		contentScimToken: contentScimToken,
 		scimBaseURL:      scimBaseURL,
+		scimBaseURLErr:   scimBaseURLErr,
 	}, nil
 }
 
@@ -110,7 +127,12 @@ func NewLucidchartClient(
 // "http://users.lucid.app/scim/v2" without comment, and it accepts a schemeless
 // "users.lucid.app/scim/v2" as a relative path, which only fails much later and
 // far less legibly when a request is built from it. Rejecting both here turns a
-// typo into a config error naming the flag rather than a mid-sync surprise.
+// typo into an error naming the flag rather than a mid-sync surprise.
+//
+// A rejection disables SCIM rather than failing construction — see the
+// scimBaseURLErr field. The protection is unchanged either way, because no SCIM
+// request is built at all while it is set; what changes is that a wrong SCIM URL
+// can no longer take down a sync that never reads it.
 //
 // https alone is not enough either. The scheme only proves nobody is reading the
 // tokens in transit; it says nothing about who is on the other end. Both
