@@ -340,6 +340,19 @@ func (o *userBuilder) deleteFromContentAccess(ctx context.Context, userID string
 				"The user is an account owner or a default document owner on the content-access integration; reassign that "+
 				"role in Lucid and retry (%v)",
 			userID, err)
+	case status.Code(err) == codes.Unauthenticated, client.IsPermissionDeniedError(err):
+		// uhttp maps HTTP 401 onto codes.Unauthenticated and 403 onto
+		// codes.PermissionDenied, so both land here as a credential problem on the
+		// content-access integration rather than as something Lucid would answer
+		// differently next time. Reporting them as transient would never converge:
+		// the admin-management delete above is idempotent, so every retry re-runs
+		// it, reads its 404 as success, and fails again on the same rejected token.
+		return status.Errorf(codes.FailedPrecondition,
+			"baton-lucidchart: delete user %s: PARTIAL DEPROVISIONING — the user was removed from the SCIM admin-management "+
+				"integration but Lucid rejected the content-access delete as unauthorized, so they may still hold team content "+
+				"access. The lucid-content-scim-token is wrong or expired, or SCIM for content access is not enabled on the "+
+				"Lucid account; retrying cannot help until that configuration is corrected (%v)",
+			userID, err)
 	default:
 		return fmt.Errorf(
 			"baton-lucidchart: delete user %s: PARTIAL DEPROVISIONING — the user was removed from the SCIM admin-management "+

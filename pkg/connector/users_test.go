@@ -501,6 +501,38 @@ func TestDelete_ContentScimToken_ContentConflictIsFailedPrecondition(t *testing.
 	require.Contains(t, err.Error(), "PARTIAL DEPROVISIONING")
 }
 
+// A 401 or 403 from the content-access integration is a configuration problem,
+// not a transient one. Left transient it would never converge: the admin delete
+// is idempotent, so the platform would retry the whole delete forever against
+// the same rejected token. Both must be terminal and must name the token.
+func TestDelete_ContentScimToken_ContentAuthFailureIsTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		httpStatus int
+	}{
+		{name: "unauthorized", httpStatus: http.StatusUnauthorized},
+		{name: "forbidden", httpStatus: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			routes := &dualScimRoutes{}
+			srv := newDualScimServer(t, routes, http.StatusNoContent, tc.httpStatus)
+			defer srv.Close()
+
+			err := deleteUserWithContentToken(t, srv, contentScimTok)
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok, "error must be a gRPC status error")
+			require.Equal(t, codes.FailedPrecondition, st.Code())
+			require.Contains(t, err.Error(), "PARTIAL DEPROVISIONING")
+			require.Contains(t, err.Error(), "lucid-content-scim-token")
+			require.NotContains(t, err.Error(), "retry the delete or remove them from content access",
+				"must not fall through to the generic retryable-looking message")
+			require.Equal(t, 1, routes.adminDeletes, "the admin-management delete must still have been attempted")
+			require.Equal(t, 1, routes.contentDeletes)
+		})
+	}
+}
+
 // When the admin-management delete fails, the content-access delete must not
 // run: the user is still fully provisioned, so there is no partial state yet.
 func TestDelete_ContentScimToken_AdminDeleteFails_SkipsContentDelete(t *testing.T) {
