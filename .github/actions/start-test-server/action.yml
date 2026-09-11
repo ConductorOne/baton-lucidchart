@@ -15,7 +15,8 @@ runs:
       run: go build -o test-server ./cmd/test-server
       shell: bash
     - name: Start test server
-      run: ./test-server &
+      # Keep the mock's SCIM token in sync with BATON_LUCID_SCIM_TOKEN, or every SCIM route 401s.
+      run: ./test-server -scim-token "${BATON_LUCID_SCIM_TOKEN:-test-scim-token}" &
       shell: bash
     - name: Wait for test server
       run: |

@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -109,15 +110,194 @@ func TestDelete_RestForbiddenButUserExists_RefusesToDelete(t *testing.T) {
 	require.False(t, routes.scimDelete, "must not delete when content could not be transferred")
 }
 
-func TestDelete_GetUserNotFoundWithContentTransfer_SkipsTransferButRunsScimDelete(t *testing.T) {
+// A transient SCIM probe failure after an ambiguous 403 must abort the delete
+// with a retryable code, not run SCIM DELETE.
+func TestDelete_RestForbiddenAndScimProbeTransient_ReturnsRetryableCode(t *testing.T) {
+	cases := []struct {
+		probeStatus int
+		wantCode    codes.Code
+	}{
+		{http.StatusTooManyRequests, codes.Unavailable},
+		{http.StatusServiceUnavailable, codes.Unavailable},
+		{http.StatusInternalServerError, codes.Unavailable},
+		{http.StatusRequestTimeout, codes.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(http.StatusText(tc.probeStatus), func(t *testing.T) {
+			routes := &deleteRoutes{}
+			srv := newDeleteServer(t, routes, http.StatusForbidden, tc.probeStatus, http.StatusNoContent)
+			defer srv.Close()
+
+			err := deleteUser(t, srv, "recipient@example.com")
+			require.Error(t, err)
+			require.Equal(t, tc.wantCode, status.Code(err),
+				"a transient probe failure must surface as a retryable code")
+			require.True(t, routes.getUser, "REST lookup should be attempted")
+			require.True(t, routes.scimGet, "SCIM must be probed to disambiguate the 403")
+			require.False(t, routes.transfer, "no transfer when the email could not be resolved")
+			require.False(t, routes.scimDelete, "delete must not run when existence could not be confirmed")
+		})
+	}
+}
+
+// A non-retryable, indeterminate SCIM probe failure after an ambiguous 403
+// must abort with codes.Unknown, not run SCIM DELETE.
+func TestDelete_RestForbiddenAndScimProbeIndeterminate_ReturnsUnknown(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusForbidden, http.StatusBadRequest, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.Error(t, err)
+	require.Equal(t, codes.Unknown, status.Code(err))
+	require.True(t, routes.getUser, "REST lookup should be attempted")
+	require.True(t, routes.scimGet, "SCIM must be probed to disambiguate the 403")
+	require.False(t, routes.transfer, "no transfer when the email could not be resolved")
+	require.False(t, routes.scimDelete, "delete must not run when existence could not be confirmed")
+}
+
+// Cancelling the sync while the SCIM probe is in flight must abort the delete
+// with an error still matchable via errors.Is(err, context.Canceled).
+func TestDelete_RestForbiddenAndProbeCancelled_PreservesContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	routes := &deleteRoutes{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/users/42":
+			routes.getUser = true
+			w.WriteHeader(http.StatusForbidden)
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/lucid-42":
+			routes.scimGet = true
+			cancel() // cancels mid-probe so ScimUserExists returns a context error
+			<-r.Context().Done()
+		case r.Method == http.MethodDelete && r.URL.Path == "/Users/lucid-42":
+			routes.scimDelete = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	c := testLucidClient(t, srv.URL, srv.URL)
+	b := newUserBuilder(c, "recipient@example.com")
+	_, err := b.Delete(ctx, &v2.ResourceId{Resource: "42"}, nil)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.Canceled),
+		"cancellation must remain detectable via errors.Is, got %v", err)
+	require.True(t, routes.scimGet, "SCIM must be probed to disambiguate the 403")
+	require.False(t, routes.transfer, "no transfer when the probe was cancelled")
+	require.False(t, routes.scimDelete, "delete must not run when the probe was cancelled")
+}
+
+// An undocumented REST 404 must be confirmed via SCIM before the delete
+// proceeds.
+func TestDelete_GetUserNotFoundAndScimUserGone_ProbesThenRunsScimDelete(t *testing.T) {
 	routes := &deleteRoutes{}
 	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusNotFound, http.StatusNoContent)
 	defer srv.Close()
 
 	err := deleteUser(t, srv, "recipient@example.com")
 	require.NoError(t, err)
+	require.True(t, routes.getUser, "REST lookup should be attempted")
+	require.True(t, routes.scimGet, "an undocumented 404 must be disambiguated via SCIM")
 	require.False(t, routes.transfer, "transfer must be skipped when the user is not found")
-	require.True(t, routes.scimDelete)
+	require.True(t, routes.scimDelete, "delete must run once SCIM confirms the user is gone")
+}
+
+// An undocumented REST 404 with the user still present per SCIM must refuse
+// the delete rather than destroy their content.
+func TestDelete_GetUserNotFoundButScimUserExists_RefusesToDelete(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusOK, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.True(t, routes.scimGet, "an undocumented 404 must be disambiguated via SCIM")
+	require.False(t, routes.transfer)
+	require.False(t, routes.scimDelete, "must not delete a user SCIM says still exists")
+}
+
+// A transient SCIM probe failure on the undocumented-404 path must abort with
+// a retryable code, not run SCIM DELETE.
+func TestDelete_GetUserNotFoundAndScimProbeTransient_AbortsWithRetryableCode(t *testing.T) {
+	cases := []struct {
+		probeStatus int
+		wantCode    codes.Code
+	}{
+		{http.StatusTooManyRequests, codes.Unavailable},
+		{http.StatusServiceUnavailable, codes.Unavailable},
+		{http.StatusInternalServerError, codes.Unavailable},
+		{http.StatusRequestTimeout, codes.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(http.StatusText(tc.probeStatus), func(t *testing.T) {
+			routes := &deleteRoutes{}
+			srv := newDeleteServer(t, routes, http.StatusNotFound, tc.probeStatus, http.StatusNoContent)
+			defer srv.Close()
+
+			err := deleteUser(t, srv, "recipient@example.com")
+			require.Error(t, err)
+			require.Equal(t, tc.wantCode, status.Code(err),
+				"a transient probe failure must surface as a retryable code")
+			require.True(t, routes.scimGet, "an undocumented 404 must attempt the SCIM probe")
+			require.False(t, routes.transfer, "no transfer when the email could not be resolved")
+			require.False(t, routes.scimDelete,
+				"must not hard-delete an unconfirmed user on the strength of a SCIM outage")
+		})
+	}
+}
+
+// Cancellation during the probe on the undocumented-404 path must abort with
+// an error still matchable via errors.Is(err, context.Canceled).
+func TestDelete_GetUserNotFoundAndProbeCancelled_PreservesContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	routes := &deleteRoutes{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/users/42":
+			routes.getUser = true
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/lucid-42":
+			routes.scimGet = true
+			cancel()
+			<-r.Context().Done()
+		case r.Method == http.MethodDelete && r.URL.Path == "/Users/lucid-42":
+			routes.scimDelete = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	c := testLucidClient(t, srv.URL, srv.URL)
+	b := newUserBuilder(c, "recipient@example.com")
+	_, err := b.Delete(ctx, &v2.ResourceId{Resource: "42"}, nil)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.Canceled),
+		"cancellation must remain detectable via errors.Is, got %v", err)
+	require.False(t, routes.scimDelete, "delete must not run when the probe was cancelled")
+}
+
+// A non-retryable, indeterminate probe failure on the undocumented-404 path
+// must refuse the delete, mirroring the ambiguous-403 case.
+func TestDelete_GetUserNotFoundAndScimProbeIndeterminate_RefusesToDelete(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusNotFound, http.StatusBadRequest, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUser(t, srv, "recipient@example.com")
+	require.Error(t, err)
+	require.Equal(t, codes.Unknown, status.Code(err))
+	require.True(t, routes.scimGet, "an undocumented 404 must attempt the SCIM probe")
+	require.False(t, routes.transfer)
+	require.False(t, routes.scimDelete,
+		"an indeterminate probe never confirmed absence, so the hard delete must not run")
 }
 
 func TestDelete_HappyPath_TransfersThenDeletes(t *testing.T) {
