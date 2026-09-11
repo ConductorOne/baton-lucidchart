@@ -327,14 +327,20 @@ func classifyProbeFailure(ctx context.Context, userID string, restErr, existsErr
 		if ctxErr == nil {
 			ctxErr = existsErr
 		}
-		return fmt.Errorf(
-			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %s): %w",
-			userID, restErr.Error(), ctxErr)
+		// Join a real gRPC status with ctxErr so the code survives the gRPC
+		// boundary while errors.Is(err, context.Canceled) still holds.
+		code := codes.Canceled
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			code = codes.DeadlineExceeded
+		}
+		return errors.Join(status.Errorf(code,
+			"baton-lucidchart: content-transfer existence probe for user %s was cancelled before it could confirm the user (REST said: %v)",
+			userID, restErr), ctxErr)
 	case client.IsRetryableError(existsErr):
-		// Preserve the retryable code so the platform re-attempts the deprovision.
-		return status.Errorf(status.Code(existsErr),
+		// Keep existsErr in the chain so uhttp's rate-limit detail survives.
+		return errors.Join(status.Errorf(status.Code(existsErr),
 			"baton-lucidchart: could not resolve user %s for content transfer (%v); the SCIM existence probe failed transiently and should be retried: %v",
-			userID, restErr, existsErr)
+			userID, restErr, existsErr), existsErr)
 	default:
 		return status.Errorf(codes.Unknown,
 			"baton-lucidchart: could not resolve user %s for content transfer (%v) and could not confirm whether they still exist: %v",
