@@ -94,8 +94,10 @@ var updateUserSchema = &v2.BatonActionSchema{
 		{
 			Name:        retConfirmedFields,
 			DisplayName: "SCIM-Confirmed Fields",
-			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. Empty if Lucid answered without a resource body.",
-			Field:       &config.Field_StringField{},
+			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
+				"Present but empty when Lucid returned a resource body that confirmed none of them. Omitted entirely " +
+				"when Lucid answered without a resource body and so confirmed nothing.",
+			Field: &config.Field_StringField{},
 		},
 	},
 	ActionType: []v2.ActionType{
@@ -227,20 +229,29 @@ func (c *Connector) updateUserHandler(
 		return nil, nil, fmt.Errorf("baton-lucidchart: update_user %s: %w", userID, err)
 	}
 
-	result := actions.NewReturnValues(true,
+	fields := []actions.ReturnField{
 		actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")),
-		// Lucid's PATCH response is the authoritative post-update state; report
-		// which of the requested changes it actually echoed back, rather than
-		// implying all of updated_fields landed.
-		actions.NewStringReturnField(retConfirmedFields, strings.Join(confirmedFields(payload, confirmed), ", ")),
-	)
+	}
+	// Lucid's PATCH response is the authoritative post-update state; report which
+	// of the requested changes it actually echoed back, rather than implying all
+	// of updated_fields landed. Omitted entirely when Lucid answered without a
+	// resource body, so an empty confirmed_fields only ever means "Lucid told us
+	// the post-update state and none of the requested values were in it" — the
+	// failure worth noticing — and never "Lucid stayed silent".
+	if !confirmed.IsZero() {
+		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(confirmedFields(payload, confirmed), ", ")))
+	}
+
+	result := actions.NewReturnValues(true, fields...)
 	return result, nil, nil
 }
 
 // confirmedFields returns the requested fields whose values Lucid's SCIM
 // response echoes back unchanged, in the same order and spelling as
-// updated_fields. Returns nil when Lucid answered without a resource body,
-// which is a legitimate SCIM response and not a failure.
+// updated_fields. It returns nil both when Lucid answered without a resource
+// body — a legitimate SCIM response and not a failure — and when the body it did
+// return confirmed nothing, so callers that need to distinguish those two must
+// check confirmed.IsZero() themselves.
 func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
 	if confirmed.IsZero() {
 		return nil

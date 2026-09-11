@@ -273,8 +273,9 @@ func TestUpdateUserHandler_ReportsScimConfirmedFields(t *testing.T) {
 }
 
 // A bodyless PATCH response confirms nothing, and must not be reported as
-// confirming everything.
-func TestUpdateUserHandler_NoResponseBodyConfirmsNothing(t *testing.T) {
+// confirming everything — nor as an empty confirmation, which is the distinct
+// and far more alarming "Lucid answered and matched none of them".
+func TestUpdateUserHandler_NoResponseBodyOmitsConfirmedFields(t *testing.T) {
 	c := scimActionConnector(t, func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
 
 	args, err := structpb.NewStruct(map[string]any{
@@ -289,6 +290,32 @@ func TestUpdateUserHandler_NoResponseBodyConfirmsNothing(t *testing.T) {
 	fields := res.AsMap()
 	require.Equal(t, true, fields["success"])
 	require.Equal(t, "firstName", fields["updated_fields"])
+	require.NotContains(t, fields, "confirmed_fields")
+}
+
+// Lucid returned the post-update user and none of the requested values were in
+// it. That is the failure this reporting exists to surface, so the field must be
+// present and empty rather than indistinguishable from a bodyless response.
+func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReportsEmptyConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"userName": "someone.else",
+		"name": {"givenName": "Stale", "familyName": "Stale"}
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName", fields["updated_fields"])
+	require.Contains(t, fields, "confirmed_fields")
 	require.Equal(t, "", fields["confirmed_fields"])
 }
 
