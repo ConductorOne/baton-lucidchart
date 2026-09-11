@@ -65,9 +65,11 @@ const (
 	actionDisableUser = "disable_user"
 	actionEnableUser  = "enable_user"
 
-	argUserID         = "user_id"
-	retSuccess        = "success"
-	retSuccessDisplay = "Success"
+	argUserID          = "user_id"
+	retSuccess         = "success"
+	retSuccessDisplay  = "Success"
+	retConfirmedFields = "confirmed_fields"
+	retActive          = "active"
 )
 
 var updateUserSchema = &v2.BatonActionSchema{
@@ -89,6 +91,12 @@ var updateUserSchema = &v2.BatonActionSchema{
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
 		{Name: "updated_fields", DisplayName: "Updated Fields", Field: &config.Field_StringField{}},
+		{
+			Name:        retConfirmedFields,
+			DisplayName: "SCIM-Confirmed Fields",
+			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. Empty if Lucid answered without a resource body.",
+			Field:       &config.Field_StringField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -105,6 +113,12 @@ var disableUserSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
+		{
+			Name:        retActive,
+			DisplayName: "Active",
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a resource body.",
+			Field:       &config.Field_BoolField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -121,6 +135,12 @@ var enableUserSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
+		{
+			Name:        retActive,
+			DisplayName: "Active",
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a resource body.",
+			Field:       &config.Field_BoolField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -202,12 +222,66 @@ func (c *Connector) updateUserHandler(
 		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: no updatable fields provided")
 	}
 
-	if _, _, err := c.client.UpdateUser(ctx, userID, payload); err != nil {
+	confirmed, _, err := c.client.UpdateUser(ctx, userID, payload)
+	if err != nil {
 		return nil, nil, fmt.Errorf("baton-lucidchart: update_user %s: %w", userID, err)
 	}
 
-	result := actions.NewReturnValues(true, actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")))
+	result := actions.NewReturnValues(true,
+		actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")),
+		// Lucid's PATCH response is the authoritative post-update state; report
+		// which of the requested changes it actually echoed back, rather than
+		// implying all of updated_fields landed.
+		actions.NewStringReturnField(retConfirmedFields, strings.Join(confirmedFields(payload, confirmed), ", ")),
+	)
 	return result, nil, nil
+}
+
+// confirmedFields returns the requested fields whose values Lucid's SCIM
+// response echoes back unchanged, in the same order and spelling as
+// updated_fields. Returns nil when Lucid answered without a resource body,
+// which is a legitimate SCIM response and not a failure.
+func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
+	if confirmed.IsZero() {
+		return nil
+	}
+
+	var out []string
+	if payload.FirstName != "" && confirmed.Name != nil && confirmed.Name.GivenName == payload.FirstName {
+		out = append(out, "firstName")
+	}
+	if payload.LastName != "" && confirmed.Name != nil && confirmed.Name.FamilyName == payload.LastName {
+		out = append(out, "lastName")
+	}
+	if payload.Email != "" && confirmed.PrimaryEmail() == payload.Email {
+		out = append(out, "email")
+	}
+	if payload.Username != "" && confirmed.UserName == payload.Username {
+		out = append(out, "username")
+	}
+	if len(payload.Roles) > 0 && sameRoles(payload.Roles, confirmed.RoleValues()) {
+		out = append(out, "roles")
+	}
+	return out
+}
+
+// sameRoles compares two role sets irrespective of order; SCIM does not
+// guarantee a multi-valued attribute comes back in the order it was sent.
+func sameRoles(requested, confirmed []string) bool {
+	if len(requested) != len(confirmed) {
+		return false
+	}
+	remaining := make(map[string]int, len(confirmed))
+	for _, r := range confirmed {
+		remaining[r]++
+	}
+	for _, r := range requested {
+		if remaining[r] == 0 {
+			return false
+		}
+		remaining[r]--
+	}
+	return true
 }
 
 func (c *Connector) disableUserHandler(
@@ -246,12 +320,20 @@ func (c *Connector) setUserActive(
 	// SCIM PATCH replace of the active flag is idempotent: re-disabling an
 	// already-inactive user (or re-enabling an active one) returns success from
 	// the API, so no special "already in state" handling is required here.
-	annos, err := c.client.SetUserActive(ctx, userID, active)
+	confirmed, annos, err := c.client.SetUserActive(ctx, userID, active)
 	if err != nil {
 		return nil, annos, fmt.Errorf("baton-lucidchart: %s %s: %w", op, userID, err)
 	}
 
-	result := actions.NewReturnValues(true)
+	// Report the state Lucid confirmed rather than the one that was requested.
+	// Omitted entirely when Lucid answered without a resource body, so an absent
+	// field reads as "unconfirmed" and never as "confirmed false".
+	fields := []actions.ReturnField{}
+	if confirmed.GetActive() != nil {
+		fields = append(fields, actions.NewBoolReturnField(retActive, *confirmed.GetActive()))
+	}
+
+	result := actions.NewReturnValues(true, fields...)
 	return result, annos, nil
 }
 

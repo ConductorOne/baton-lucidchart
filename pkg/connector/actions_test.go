@@ -220,3 +220,136 @@ func TestRestRoleToScim_StaysInSyncWithBothEnums(t *testing.T) {
 		require.True(t, reachable[scimRole], "no REST role maps to %q", scimRole)
 	}
 }
+
+// scimActionConnector wires a Connector to a SCIM mock that answers every PATCH
+// with the given body.
+func scimActionConnector(t *testing.T, respond func(w http.ResponseWriter)) *Connector {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		respond(w)
+	}))
+	t.Cleanup(srv.Close)
+
+	return &Connector{client: testLucidClient(t, srv.URL, srv.URL)}
+}
+
+func jsonBody(body string) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+// update_user reports which of the requested changes Lucid's SCIM response
+// actually echoed back, instead of discarding that response entirely.
+func TestUpdateUserHandler_ReportsScimConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"userName": "ada.lovelace",
+		"name": {"givenName": "Ada", "familyName": "Stale"},
+		"emails": [{"value": "ada@example.com", "primary": true}]
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","username":"ada.lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName, email, username", fields["updated_fields"])
+	// lastName is absent: Lucid answered "Stale", not the requested "Lovelace".
+	require.Equal(t, "firstName, email, username", fields["confirmed_fields"])
+}
+
+// A bodyless PATCH response confirms nothing, and must not be reported as
+// confirming everything.
+func TestUpdateUserHandler_NoResponseBodyConfirmsNothing(t *testing.T) {
+	c := scimActionConnector(t, func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName", fields["updated_fields"])
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+func TestUpdateUserHandler_ConfirmsRolesRegardlessOfOrder(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"},{"value":"DocumentAdmin"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["DocumentAdmin","Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+	require.Equal(t, "roles", res.AsMap()["confirmed_fields"])
+}
+
+// disable_user / enable_user report the active state Lucid confirmed, not the
+// one that was requested.
+func TestSetUserActiveHandlers_ReturnConfirmedActiveState(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		disable  bool
+		wantBool bool
+	}{
+		{name: "disable", body: `{"id":"lucid-7","active":false}`, disable: true, wantBool: false},
+		{name: "enable", body: `{"id":"lucid-7","active":true}`, disable: false, wantBool: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := scimActionConnector(t, jsonBody(tc.body))
+
+			args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+			require.NoError(t, err)
+
+			handler := c.enableUserHandler
+			if tc.disable {
+				handler = c.disableUserHandler
+			}
+
+			res, _, err := handler(context.Background(), args)
+			require.NoError(t, err)
+
+			fields := res.AsMap()
+			require.Equal(t, true, fields["success"])
+			require.Equal(t, tc.wantBool, fields["active"])
+		})
+	}
+}
+
+// An absent active field must read as "unconfirmed", never as "confirmed false".
+func TestSetUserActiveHandler_NoResponseBodyOmitsActive(t *testing.T) {
+	c := scimActionConnector(t, func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
+
+	args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+	require.NoError(t, err)
+
+	res, _, err := c.disableUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.NotContains(t, fields, "active")
+}

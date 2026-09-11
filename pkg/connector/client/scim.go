@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,6 +45,90 @@ type ScimPatchOperation struct {
 	Op    string      `json:"op"`
 	Path  string      `json:"path"`
 	Value interface{} `json:"value"`
+}
+
+// ScimUser is the SCIM 2.0 User resource Lucid returns from a successful
+// PATCH /Users/{id} (and GET /Users/{id}). It is Lucid's confirmed
+// post-write state, which is not necessarily what the caller asked for.
+//
+// Only the core attributes the connector acts on are modelled; SCIM responses
+// carry more (meta, groups, enterprise extensions) and unknown fields are
+// ignored. Every field is optional — a server that answers 204 No Content
+// leaves the whole struct zero-valued, so callers must nil-check before use.
+type ScimUser struct {
+	ID         string          `json:"id"`
+	UserName   string          `json:"userName"`
+	Active     *bool           `json:"active"`
+	ExternalID string          `json:"externalId"`
+	Name       *ScimUserName   `json:"name"`
+	Emails     []ScimUserEmail `json:"emails"`
+	Roles      []ScimUserRole  `json:"roles"`
+}
+
+// ScimUserName is the SCIM complex "name" attribute.
+type ScimUserName struct {
+	GivenName  string `json:"givenName"`
+	FamilyName string `json:"familyName"`
+}
+
+// ScimUserEmail is one entry of the SCIM multi-valued "emails" attribute.
+type ScimUserEmail struct {
+	Value   string `json:"value"`
+	Type    string `json:"type"`
+	Primary bool   `json:"primary"`
+}
+
+// ScimUserRole is one entry of the SCIM multi-valued "roles" attribute.
+type ScimUserRole struct {
+	Value string `json:"value"`
+}
+
+// GetActive returns the confirmed active flag, or nil when the response did not
+// carry one. nil-safe so callers need not guard the receiver.
+func (u *ScimUser) GetActive() *bool {
+	if u == nil {
+		return nil
+	}
+	return u.Active
+}
+
+// PrimaryEmail returns the address SCIM marked primary, falling back to the
+// first entry. Lucid's user model holds a single address, so the fallback is
+// what a response without an explicit primary flag means.
+func (u *ScimUser) PrimaryEmail() string {
+	if u == nil {
+		return ""
+	}
+	for _, e := range u.Emails {
+		if e.Primary {
+			return e.Value
+		}
+	}
+	if len(u.Emails) > 0 {
+		return u.Emails[0].Value
+	}
+	return ""
+}
+
+// RoleValues flattens the multi-valued roles attribute to the bare role names.
+func (u *ScimUser) RoleValues() []string {
+	if u == nil || len(u.Roles) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(u.Roles))
+	for _, r := range u.Roles {
+		out = append(out, r.Value)
+	}
+	return out
+}
+
+// IsZero reports whether the response carried no usable SCIM resource — the
+// case when Lucid answers a PATCH with 204 No Content instead of the updated
+// user. Callers use it to tell "no confirmation available" apart from a
+// confirmation that happens to be empty.
+func (u *ScimUser) IsZero() bool {
+	return u == nil || (u.ID == "" && u.UserName == "" && u.Active == nil &&
+		u.ExternalID == "" && u.Name == nil && len(u.Emails) == 0 && len(u.Roles) == 0)
 }
 
 // errScimNotConfigured is returned when a SCIM operation is attempted without a
@@ -97,11 +182,39 @@ func (c *LucidchartClient) newScimRequestWithToken(
 	return c.client.NewRequest(ctx, method, urlAddress, options...)
 }
 
+// scimUserResponse decodes the SCIM User resource Lucid returns from a
+// successful PATCH /Users/{id} into out.
+//
+// uhttp.WithResponse cannot be used here: it rejects any response whose
+// Content-Type is neither JSON nor XML, which includes the bodyless 204 a SCIM
+// server is entitled to answer a PATCH with. A write that Lucid accepted must
+// not be reported as a failure just because it came back without a body, so an
+// absent or non-JSON body leaves out zero-valued (ScimUser.IsZero) rather than
+// erroring. A body that claims to be JSON and is not still errors — that is a
+// broken response, not an empty one.
+func scimUserResponse(out *ScimUser) uhttp.DoOption {
+	return func(resp *uhttp.WrapperResponse) error {
+		if out == nil || resp.StatusCode == http.StatusNoContent || len(resp.Body) == 0 {
+			return nil
+		}
+		if !uhttp.IsJSONContentType(resp.Header.Get(uhttp.ContentType)) {
+			return nil
+		}
+		if err := json.Unmarshal(resp.Body, out); err != nil {
+			return fmt.Errorf("failed to decode SCIM user response: %w", err)
+		}
+		return nil
+	}
+}
+
 // SetUserActive toggles a user's active state via SCIM PATCH. active=false is a
 // soft, reversible deactivation; active=true reactivates a deactivated user.
-func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, active bool) (annotations.Annotations, error) {
+//
+// The returned *ScimUser is Lucid's confirmed post-write state. It is never nil
+// on success, but may be IsZero when Lucid answered without a body.
+func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, active bool) (*ScimUser, annotations.Annotations, error) {
 	if !c.ScimConfigured() {
-		return nil, errScimNotConfigured
+		return nil, nil, errScimNotConfigured
 	}
 
 	body := &ScimPatchOp{
@@ -113,14 +226,15 @@ func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, act
 
 	req, err := c.newScimRequest(ctx, http.MethodPatch, fmt.Sprintf(ScimUserPath, scimResourceID(userID)), body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if _, err := c.doRequest(ctx, req, nil); err != nil {
-		return nil, err
+	updated := &ScimUser{}
+	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(updated)); err != nil {
+		return nil, nil, err
 	}
 
-	return nil, nil
+	return updated, nil, nil
 }
 
 // ScimUserExists reports whether the user still exists, via SCIM GET /Users/{id}.

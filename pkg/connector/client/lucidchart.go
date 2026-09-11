@@ -169,16 +169,27 @@ func (c *LucidchartClient) doRequest(
 	req *http.Request,
 	res interface{},
 ) (string, error) {
-	var (
-		resp *http.Response
-		err  error
-	)
-
 	var options []uhttp.DoOption
 
 	if res != nil {
 		options = append(options, uhttp.WithResponse(&res))
 	}
+
+	return c.doRequestWithOptions(ctx, req, options...)
+}
+
+// doRequestWithOptions is doRequest with the response handling left to the
+// caller, for surfaces whose bodies need decoding rules uhttp.WithResponse does
+// not cover (see scimUserResponse).
+func (c *LucidchartClient) doRequestWithOptions(
+	ctx context.Context,
+	req *http.Request,
+	options ...uhttp.DoOption,
+) (string, error) {
+	var (
+		resp *http.Response
+		err  error
+	)
 
 	resp, err = c.client.Do(req.WithContext(ctx), options...)
 	if err != nil {

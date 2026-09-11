@@ -36,15 +36,25 @@ func TestSetUserActive(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"123","active":false}`))
+		_, _ = w.Write([]byte(`{"id":"lucid-123","userName":"ada@example.com","active":false,"externalId":"ext-1"}`))
 	}))
 	defer srv.Close()
 
 	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
 
-	_, err := c.SetUserActive(context.Background(), "123", false)
+	updated, _, err := c.SetUserActive(context.Background(), "123", false)
 	require.NoError(t, err)
+
+	// The PATCH response is Lucid's confirmed post-write state, not a discarded body.
+	require.NotNil(t, updated)
+	require.False(t, updated.IsZero())
+	require.Equal(t, "lucid-123", updated.ID)
+	require.Equal(t, "ada@example.com", updated.UserName)
+	require.Equal(t, "ext-1", updated.ExternalID)
+	require.NotNil(t, updated.GetActive())
+	require.False(t, *updated.GetActive())
 
 	require.Equal(t, http.MethodPatch, gotMethod)
 	require.Equal(t, "/Users/lucid-123", gotPath)
@@ -105,6 +115,84 @@ func TestUpdateUserSendsDocumentedScimShape(t *testing.T) {
 	}
 }
 
+// UpdateUser used to return (nil, nil, nil) unconditionally, throwing away the
+// SCIM User resource Lucid answers a PATCH with. It must now return that state.
+func TestUpdateUserReturnsConfirmedScimUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"id": "lucid-123",
+			"userName": "ada.lovelace",
+			"active": true,
+			"externalId": "ext-42",
+			"name": {"givenName": "Ada", "familyName": "Lovelace"},
+			"emails": [{"value": "ada@example.com", "type": "work", "primary": true}],
+			"roles": [{"value": "DocumentAdmin"}, {"value": "Developer"}]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{
+		FirstName: "Ada",
+		LastName:  "Lovelace",
+		Email:     "ada@example.com",
+		Username:  "ada.lovelace",
+		Roles:     []string{"DocumentAdmin", "Developer"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.False(t, updated.IsZero())
+
+	require.Equal(t, "lucid-123", updated.ID)
+	require.Equal(t, "ada.lovelace", updated.UserName)
+	require.Equal(t, "ext-42", updated.ExternalID)
+	require.NotNil(t, updated.GetActive())
+	require.True(t, *updated.GetActive())
+	require.Equal(t, "Ada", updated.Name.GivenName)
+	require.Equal(t, "Lovelace", updated.Name.FamilyName)
+	require.Equal(t, "ada@example.com", updated.PrimaryEmail())
+	require.ElementsMatch(t, []string{"DocumentAdmin", "Developer"}, updated.RoleValues())
+}
+
+// A SCIM server may answer a PATCH with 204 No Content. That is a successful
+// write with nothing to confirm, not a failure — and it must not be turned into
+// one by asking for a body.
+func TestScimWriteWithNoResponseBodyStillSucceeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{FirstName: "Ada"})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.True(t, updated.IsZero(), "a bodyless response confirms nothing")
+
+	active, _, err := c.SetUserActive(context.Background(), "123", false)
+	require.NoError(t, err)
+	require.True(t, active.IsZero())
+	require.Nil(t, active.GetActive())
+}
+
+// PrimaryEmail falls back to the first address when SCIM marks none primary,
+// which is what Lucid's single-address user model means in practice.
+func TestScimUserPrimaryEmailFallback(t *testing.T) {
+	u := &ScimUser{Emails: []ScimUserEmail{{Value: "first@example.com"}, {Value: "second@example.com"}}}
+	require.Equal(t, "first@example.com", u.PrimaryEmail())
+
+	u.Emails[1].Primary = true
+	require.Equal(t, "second@example.com", u.PrimaryEmail())
+
+	require.Empty(t, (*ScimUser)(nil).PrimaryEmail())
+	require.Nil(t, (*ScimUser)(nil).RoleValues())
+	require.True(t, (*ScimUser)(nil).IsZero())
+}
+
 func TestScimDeleteUser(t *testing.T) {
 	var gotMethod, gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +227,7 @@ func TestScimNotConfigured(t *testing.T) {
 	c := testClient(t, "https://api.lucid.co", "", "")
 	require.False(t, c.ScimConfigured())
 
-	_, err := c.SetUserActive(context.Background(), "123", false)
+	_, _, err := c.SetUserActive(context.Background(), "123", false)
 	require.ErrorIs(t, err, errScimNotConfigured)
 
 	_, err = c.ScimDeleteUser(context.Background(), "123")
