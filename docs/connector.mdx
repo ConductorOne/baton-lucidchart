@@ -59,6 +59,8 @@ The `scim-base-url` setting defaults to `https://users.lucid.app/scim/v2`, which
 
 Lucid publishes no fixed FedRAMP SCIM hostname. Unlike the REST API, which simply swaps `api.lucid.co` for `api.lucidgov.app`, the SCIM base URL for a GovSuite account is **generated per account in your own GovSuite admin panel**. Copy it from there and paste it into `scim-base-url`. It applies to both SCIM tokens, since both integrations share the one base URL.
 
+Both SCIM bearer tokens are sent to whatever host `scim-base-url` names, so the connector rejects a value that isn't an `https://` URL on a Lucid-owned domain — `lucid.app`, `lucidgov.app`, `lucid.co`, or a subdomain of one. A GovSuite URL copied from your admin panel already satisfies this. The one exception is a loopback host (`localhost` or `127.0.0.1`), which is accepted over plain `http` so the connector can be pointed at a local test server; a non-loopback mock host is not accepted.
+
 ## Gather Lucidchart credentials 
 
 Each setup method requires you to pass in credentials generated in Lucidchart. Gather these credentials before you move on. 

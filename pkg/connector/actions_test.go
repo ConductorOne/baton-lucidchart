@@ -293,10 +293,32 @@ func TestUpdateUserHandler_NoResponseBodyOmitsConfirmedFields(t *testing.T) {
 	require.NotContains(t, fields, "confirmed_fields")
 }
 
-// Lucid returned the post-update user and none of the requested values were in
-// it. Nothing observably changed, so the action must fail rather than report a
-// success whose confirmed_fields is empty.
-func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReturnsFailedPrecondition(t *testing.T) {
+// Lucid returned a resource body but echoed none of the requested attributes
+// back. SCIM permits returning a subset of the resource, so that confirms
+// nothing either way and must not fail an update that may well have landed — it
+// reports an empty confirmed_fields, distinct from the omitted-entirely case.
+func TestUpdateUserHandler_ResponseBodyEchoingNothing_ReportsEmptyConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7"}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName", fields["updated_fields"])
+	require.Contains(t, fields, "confirmed_fields")
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// Lucid echoed the requested attributes back and contradicted every one of
+// them. Nothing landed, so the action must fail rather than report success.
+func TestUpdateUserHandler_ResponseBodyContradictingEverything_ReturnsFailedPrecondition(t *testing.T) {
 	c := scimActionConnector(t, jsonBody(`{
 		"id": "lucid-7",
 		"userName": "someone.else",
@@ -313,6 +335,29 @@ func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReturnsFailedPreconditi
 	require.Error(t, err)
 	require.Nil(t, res)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+// A contradiction on one attribute while others landed is a partial update, not
+// a no-op: confirmed_fields already reports exactly which changes took, and
+// failing the whole action would discard that.
+func TestUpdateUserHandler_PartialContradictionStillReportsConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"name": {"givenName": "Ada", "familyName": "Stale"}
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName", fields["confirmed_fields"])
 }
 
 func TestUpdateUserHandler_ConfirmsRolesRegardlessOfOrder(t *testing.T) {

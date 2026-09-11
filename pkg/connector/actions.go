@@ -95,8 +95,9 @@ var updateUserSchema = &v2.BatonActionSchema{
 			Name:        retConfirmedFields,
 			DisplayName: "SCIM-Confirmed Fields",
 			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
-				"Omitted entirely when Lucid answered without a resource body and so confirmed nothing. Never empty: a " +
-				"resource body that confirmed none of the requested fields fails the action instead.",
+				"Omitted entirely when Lucid answered without a resource body and so confirmed nothing. Present but empty " +
+				"when Lucid returned a resource body that echoed none of the requested attributes back. When Lucid echoes " +
+				"attributes back and contradicts every one of them, nothing landed and the action fails instead.",
 			Field: &config.Field_StringField{},
 		},
 	},
@@ -239,17 +240,20 @@ func (c *Connector) updateUserHandler(
 	// the post-update state and echoed none of the requested attributes back" and
 	// never "Lucid stayed silent".
 	if !confirmed.IsZero() {
-		// A field Lucid echoed back with a *different* value is a change that
-		// demonstrably did not take effect; reporting success would let it close
-		// out as applied. An attribute Lucid merely omitted is not that — SCIM
-		// servers may return a subset of the resource — so it stays unconfirmed
-		// rather than failing an update that may well have landed.
-		if contradicted := contradictedFields(payload, confirmed); len(contradicted) > 0 {
+		matched := confirmedFields(payload, confirmed)
+		// Lucid echoed requested attributes back and every one of them disagreed
+		// with what was asked for: nothing landed, so success would be a lie. A
+		// partial disagreement is not this case — confirmed_fields already reports
+		// which changes took — and an attribute Lucid merely omitted is not either,
+		// since SCIM permits returning a subset of the resource and absence carries
+		// no information. Only "it spoke about them, and it contradicted all of
+		// them" is an unambiguous no-op.
+		if contradicted := contradictedFields(payload, confirmed); len(contradicted) > 0 && len(matched) == 0 {
 			return nil, nil, status.Errorf(codes.FailedPrecondition,
-				"baton-lucidchart: update_user %s: Lucid's post-update user contradicts the requested value for %s; "+
-					"the update did not take effect", userID, strings.Join(contradicted, ", "))
+				"baton-lucidchart: update_user %s: Lucid's post-update user contradicts the requested value for every "+
+					"attribute it reported (%s); the update did not take effect", userID, strings.Join(contradicted, ", "))
 		}
-		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(confirmedFields(payload, confirmed), ", ")))
+		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(matched, ", ")))
 	}
 
 	result := actions.NewReturnValues(true, fields...)
@@ -281,6 +285,40 @@ func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUs
 		out = append(out, "username")
 	}
 	if len(payload.Roles) > 0 && sameRoles(payload.Roles, confirmed.RoleValues()) {
+		out = append(out, "roles")
+	}
+	return out
+}
+
+// contradictedFields returns the requested fields Lucid's SCIM response echoes
+// back with a value other than the one that was asked for — the post-update
+// state disagreeing with the request, which means the change did not take
+// effect.
+//
+// It deliberately does not report a field Lucid simply left out. RFC 7644 lets a
+// server return a subset of the resource, so an absent attribute carries no
+// information either way; treating that as a contradiction would fail updates
+// that did land. Absence is reported by leaving the field out of
+// confirmedFields instead.
+func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
+	if confirmed.IsZero() {
+		return nil
+	}
+
+	var out []string
+	if payload.FirstName != "" && confirmed.Name != nil && confirmed.Name.GivenName != "" && confirmed.Name.GivenName != payload.FirstName {
+		out = append(out, "firstName")
+	}
+	if payload.LastName != "" && confirmed.Name != nil && confirmed.Name.FamilyName != "" && confirmed.Name.FamilyName != payload.LastName {
+		out = append(out, "lastName")
+	}
+	if payload.Email != "" && confirmed.PrimaryEmail() != "" && confirmed.PrimaryEmail() != payload.Email {
+		out = append(out, "email")
+	}
+	if payload.Username != "" && confirmed.UserName != "" && confirmed.UserName != payload.Username {
+		out = append(out, "username")
+	}
+	if len(payload.Roles) > 0 && len(confirmed.RoleValues()) > 0 && !sameRoles(payload.Roles, confirmed.RoleValues()) {
 		out = append(out, "roles")
 	}
 	return out
