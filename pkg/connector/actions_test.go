@@ -351,7 +351,13 @@ func TestUpdateUserHandler_ExtraRolesInResponseAreNotContradiction(t *testing.T)
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
 	require.NoError(t, err)
-	require.Equal(t, true, res.AsMap()["success"])
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// Not merely "not contradicted": the requested role is present, so it must
+	// read as confirmed. An empty confirmed_fields here would report the change
+	// as unacknowledged when it plainly landed.
+	require.Equal(t, "roles", fields["confirmed_fields"])
 }
 
 // A role Lucid did not apply is absent from the response, and that is the only
@@ -384,7 +390,12 @@ func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
 	require.NoError(t, err)
-	require.Equal(t, true, res.AsMap()["success"])
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// The address matches bar its case, so it is confirmed, not merely
+	// uncontradicted.
+	require.Equal(t, "email", fields["confirmed_fields"])
 }
 
 // A contradiction on one attribute while others landed is a partial update, not
