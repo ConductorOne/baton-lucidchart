@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func testClient(t *testing.T, restURL, scimURL, scimToken string) *LucidchartClient {
@@ -177,6 +179,40 @@ func TestScimWriteWithNoResponseBodyStillSucceeds(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, active.IsZero())
 	require.Nil(t, active.GetActive())
+}
+
+// uhttp runs every DoOption before it looks at the status and joins their errors
+// into the one it returns for a non-2xx. An error body that advertises JSON but
+// is not a SCIM User must therefore not add a decode failure on top of the real
+// HTTP status error — the status is the finding, the body shape is not.
+func TestScimErrorResponseDoesNotAddDecodeNoise(t *testing.T) {
+	cases := []struct {
+		Name string
+		Body string
+	}{
+		{Name: "json array", Body: `[]`},
+		{Name: "json string", Body: `"nope"`},
+	}
+
+	for _, s := range cases {
+		t.Run(s.Name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(s.Body))
+			}))
+			defer srv.Close()
+
+			c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+			_, _, err := c.SetUserActive(context.Background(), "123", false)
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "failed to decode SCIM user response")
+			// The real failure still surfaces, both as text and as a gRPC code.
+			require.Contains(t, err.Error(), "400 Bad Request")
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
 }
 
 // PrimaryEmail falls back to the first address when SCIM marks none primary,

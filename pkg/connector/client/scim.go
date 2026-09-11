@@ -192,8 +192,19 @@ func (c *LucidchartClient) newScimRequestWithToken(
 // absent or non-JSON body leaves out zero-valued (ScimUser.IsZero) rather than
 // erroring. A body that claims to be JSON and is not still errors — that is a
 // broken response, not an empty one.
+//
+// That last rule is scoped to the success path deliberately. uhttp runs every
+// DoOption before it inspects the status, then joins whatever they returned
+// into the error it reports for a non-2xx. An error body that advertises JSON
+// but carries some other shape — a bare array, a bare string — is not a SCIM
+// User and was never meant to be, so decoding it there would only staple a
+// spurious decode failure onto the real HTTP status error. Non-2xx responses
+// are therefore left to uhttp's own status handling.
 func scimUserResponse(out *ScimUser) uhttp.DoOption {
 	return func(resp *uhttp.WrapperResponse) error {
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil
+		}
 		if out == nil || resp.StatusCode == http.StatusNoContent || len(resp.Body) == 0 {
 			return nil
 		}
