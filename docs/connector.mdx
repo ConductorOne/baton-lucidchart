@@ -8,19 +8,31 @@ sidebarTitle: "Lucidchart"
 
 ## Capabilities
 
-| Resource | Sync | Provision |
-| :--- | :--- | :--- |
-| Accounts | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/>* |
-| Folders | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> |
-| Documents | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | 
+| Resource | Sync | Provision | Delete | Actions |
+| :--- | :--- | :--- | :--- | :--- |
+| Accounts | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/>* | <Icon icon="square-check" iconType="solid"  color="#c937ae"/>† | <Icon icon="square-check" iconType="solid"  color="#c937ae"/>† |
+| Folders | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | | |
+| Documents | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | <Icon icon="square-check" iconType="solid"  color="#c937ae"/> | | |
 
 The Lucidchart connector supports [automatic account provisioning](/product/admin/account-provisioning). 
 
 *Account provisioning is only available on Lucidchart accounts with Enterprise licenses. When creating an account with no roles specified, Lucid assigns its server-side default role.
 
+†Delete and the account actions require a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation still work, but these capabilities are unavailable.
+
 When a new account is created by C1, the account's password will be sent to a [vault](/product/admin/vaults). 
 
-Account deprovisioning (delete) requires a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation work, but Delete and the enable/disable/update-profile actions are unavailable.
+### Account actions
+
+Three account actions run against the SCIM surface, so each one needs the `lucid-scim-token` described above:
+
+| Action | What it does |
+| :--- | :--- |
+| `enable_user` | Reactivates an account (SCIM `active=true`). |
+| `disable_user` | Deactivates an account (SCIM `active=false`). Soft and reversible. |
+| `update_user` | Updates an account's `firstName`, `lastName`, `email`, `username` or `roles`. |
+
+`update_user` accepts roles either as SCIM names (`AccountAdmin`, `BillingAdmin`, `Developer`, `DocumentAdmin`, `EnterpriseShieldAdmin`, `TemplateAdmin`) or as the kebab-case names account creation takes (`team-admin`, `billing-admin`, `developer`, `document-admin`, `enterprise-shield-admin`, `template-admin`), which are translated for you. The remaining creation-time roles — `account-owner`, `group-admin`, `organizational-group-admin` and `team-manager` — have no SCIM equivalent and cannot be changed after the account exists.
 
 ## Gather Lucidchart credentials 
 
