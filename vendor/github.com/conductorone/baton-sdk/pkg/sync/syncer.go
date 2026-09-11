@@ -234,6 +234,7 @@ type syncer struct {
 	syncID                                string
 	skipEGForResourceType                 syncMap[string, bool]
 	skipEntitlementsForResourceType       syncMap[string, bool]
+	skipGrantsForResourceType             syncMap[string, bool]
 	typeScopedGrantsForResourceType       syncMap[string, bool]
 	typeScopedEntitlementsForResourceType syncMap[string, bool]
 	scheduledResourceTypes                syncMap[string, bool]
@@ -1954,7 +1955,29 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 		return true, nil
 	}
 
-	return s.shouldSkipEntitlementsAndGrants(ctx, r)
+	// Check SkipEntitlementsAndGrants at instance or resource-type scope.
+	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+	if err != nil || ok {
+		return ok, err
+	}
+
+	// Check SkipGrants at resource-type scope.
+	if skip, ok := s.skipGrantsForResourceType.Load(r.GetId().GetResourceType()); ok {
+		return skip, nil
+	}
+
+	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: r.GetId().GetResourceType(),
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+
+	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
+	skipGrants := rtAnnos.Contains(&v2.SkipGrants{})
+	s.skipGrantsForResourceType.Store(r.GetId().GetResourceType(), skipGrants)
+
+	return skipGrants, nil
 }
 
 // No span here: shouldSkipEntitlements is called per-resource and almost
@@ -4028,6 +4051,9 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 // WithPreviousSyncC1ZPath registers a separate c1z holding the previous sync
 // for replay features.
 //
+// Advanced: source-cache replay is advanced, opt-in functionality (see
+// pkg/sourcecache); most callers should not set this option.
+//
 // This is required for the single-sync v3 (Pebble) engine: a Pebble c1z
 // holds exactly one sync by contract, so there is no in-file "previous
 // sync" to replay from (StartNewSync replaces the prior sync). NewSyncer
@@ -4053,7 +4079,8 @@ func WithPreviousSyncC1ZPath(path string) SyncOpt {
 // WithOptionalPreviousSyncC1ZPath is WithPreviousSyncC1ZPath with
 // best-effort semantics: if the file is missing, corrupt, or written by
 // an incompatible SDK, NewSyncer logs and proceeds WITHOUT replay
-// instead of failing. Intended for cache-style replay sources the
+// instead of failing. Advanced, opt-in functionality like its strict
+// twin — see pkg/sourcecache. Intended for cache-style replay sources the
 // caller maintains automatically (the service-mode previous-sync spare)
 // — a bad cache file must never fail a sync. Callers that name a
 // specific file deliberately should use WithPreviousSyncC1ZPath, which

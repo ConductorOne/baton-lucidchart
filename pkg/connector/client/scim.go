@@ -11,7 +11,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
-const scimContentType = "application/scim+json"
+// scimContentType is the media type Lucid's SCIM surface documents.
+// RFC 7644's "application/scim+json" appears nowhere in Lucid's reference.
+const scimContentType = "application/json"
 
 const scimOpReplace = "replace"
 
@@ -19,7 +21,9 @@ var (
 	// ScimUserPath is the SCIM 2.0 single-user resource path: /Users/{id}.
 	ScimUserPath = "/Users/%s"
 
-	scimPatchOpSchema = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+	// scimPatchSchema is the `schemas` value Lucid documents for a PATCH
+	// /Users/{id} body, in place of RFC 7644's PatchOp URN.
+	scimPatchSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
 // scimResourceID converts a bare REST userId (e.g. "101") to the SCIM resource
@@ -47,7 +51,7 @@ type ScimPatchOperation struct {
 var errScimNotConfigured = errors.New("SCIM is not configured: a SCIM bearer token (Enterprise tier) is required for user deprovisioning")
 
 // newScimRequest builds a request against the SCIM base URL using the separate
-// SCIM bearer token and SCIM 2.0 content negotiation.
+// SCIM bearer token and the content negotiation Lucid's SCIM surface documents.
 func (c *LucidchartClient) newScimRequest(
 	ctx context.Context,
 	method string,
@@ -67,8 +71,7 @@ func (c *LucidchartClient) newScimRequest(
 	}
 
 	if body != nil {
-		// WithJSONBody marshals the body and sets application/json; override the
-		// content type afterwards so it wins (SCIM expects application/scim+json).
+		// WithJSONBody already sets application/json; pin it explicitly too.
 		options = append(options, uhttp.WithJSONBody(body), uhttp.WithContentType(scimContentType))
 	}
 
@@ -83,7 +86,7 @@ func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, act
 	}
 
 	body := &ScimPatchOp{
-		Schemas: []string{scimPatchOpSchema},
+		Schemas: []string{scimPatchSchema},
 		Operations: []ScimPatchOperation{
 			{Op: scimOpReplace, Path: "active", Value: active},
 		},

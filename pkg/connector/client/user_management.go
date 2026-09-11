@@ -77,7 +77,16 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "name.familyName", Value: payload.LastName})
 	}
 	if payload.Email != "" {
-		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "emails[primary eq true].value", Value: payload.Email})
+		// Bare "emails" path with a full replacement value, the shape Lucid
+		// documents (it has no filtered-path example). This replaces the whole
+		// collection, which is safe since Lucid's user model holds one address.
+		ops = append(ops, ScimPatchOperation{
+			Op:   scimOpReplace,
+			Path: "emails",
+			Value: []map[string]interface{}{
+				{"value": payload.Email, "primary": true, "type": "work"},
+			},
+		})
 	}
 	if payload.Username != "" {
 		ops = append(ops, ScimPatchOperation{Op: scimOpReplace, Path: "userName", Value: payload.Username})
@@ -95,7 +104,7 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 	}
 
 	body := &ScimPatchOp{
-		Schemas:    []string{scimPatchOpSchema},
+		Schemas:    []string{scimPatchSchema},
 		Operations: ops,
 	}
 
