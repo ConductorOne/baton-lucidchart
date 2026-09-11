@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -83,6 +85,8 @@ func NewLucidchartClient(
 
 	if scimBaseURL == "" {
 		scimBaseURL = string(LucidScimUrl)
+	} else if err := validateScimBaseURL(scimBaseURL); err != nil {
+		return nil, err
 	}
 
 	return &LucidchartClient{
@@ -94,6 +98,52 @@ func NewLucidchartClient(
 		contentScimToken: contentScimToken,
 		scimBaseURL:      scimBaseURL,
 	}, nil
+}
+
+// validateScimBaseURL checks a caller-supplied SCIM base URL at construction
+// time. scim-base-url is customer-settable — a FedRAMP/GovSuite tenant must
+// enter the account-specific URL by hand — and the SCIM surface is where the
+// Enterprise bearer tokens travel, so a cleartext value would put them on the
+// wire in the clear.
+//
+// url.Parse is far too permissive to serve as the check on its own: it accepts
+// "http://users.lucid.app/scim/v2" without comment, and it accepts a schemeless
+// "users.lucid.app/scim/v2" as a relative path, which only fails much later and
+// far less legibly when a request is built from it. Rejecting both here turns a
+// typo into a config error naming the flag rather than a mid-sync surprise.
+func validateScimBaseURL(scimBaseURL string) error {
+	parsed, err := url.Parse(scimBaseURL)
+	if err != nil {
+		return fmt.Errorf("baton-lucidchart: scim-base-url %q is not a valid URL: %w", scimBaseURL, err)
+	}
+
+	// http is tolerated for loopback only, where the cleartext never leaves the
+	// machine and no observer can reach it. That keeps the constructor — and
+	// therefore its validation — exercisable against a local test server.
+	if parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname()) {
+		return nil
+	}
+
+	if parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf(
+			"baton-lucidchart: scim-base-url must be an absolute https:// URL (for example %s), got %q",
+			LucidScimUrl,
+			scimBaseURL,
+		)
+	}
+
+	return nil
+}
+
+// isLoopbackHost reports whether host names the local machine.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
 }
 
 // ScimConfigured reports whether the admin-management SCIM bearer token was
