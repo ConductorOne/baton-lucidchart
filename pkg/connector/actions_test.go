@@ -53,19 +53,35 @@ func newScimPatchServer(t *testing.T, sentRoles *[]string) *httptest.Server {
 				Value any    `json:"value"`
 			} `json:"Operations"`
 		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
 		for _, op := range body.Operations {
 			if op.Path != "roles" {
 				continue
 			}
 			values, ok := op.Value.([]any)
-			require.True(t, ok, "roles value must be a list, got %T", op.Value)
+			if !ok {
+				t.Errorf("roles value must be a list, got %T", op.Value)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			for _, v := range values {
 				entry, ok := v.(map[string]any)
-				require.True(t, ok, "role entry must be an object, got %T", v)
+				if !ok {
+					t.Errorf("role entry must be an object, got %T", v)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 				role, ok := entry["value"].(string)
-				require.True(t, ok, "role entry must carry a string value")
+				if !ok {
+					t.Errorf("role entry must carry a string value, got %T", entry["value"])
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 				*sentRoles = append(*sentRoles, role)
 			}
 		}
