@@ -399,6 +399,26 @@ func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
 	require.Equal(t, "email", fields["confirmed_fields"])
 }
 
+// An attribute Lucid omitted must never help condemn the update. Here firstName
+// is contradicted and roles is simply absent, so the roles half may well have
+// landed — failing terminally would strand it on every retry.
+func TestUpdateUserHandler_OmittedFieldDoesNotTriggerFailure(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","name":{"givenName":"Stale"}}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","roles":["Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
 // A contradiction on one attribute while others landed is a partial update, not
 // a no-op: confirmed_fields already reports exactly which changes took, and
 // failing the whole action would discard that.

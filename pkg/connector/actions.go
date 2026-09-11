@@ -243,17 +243,16 @@ func (c *Connector) updateUserHandler(
 	// never "Lucid stayed silent".
 	if !confirmed.IsZero() {
 		matched := confirmedFields(payload, confirmed)
-		// Lucid echoed requested attributes back and every one of them disagreed
-		// with what was asked for: nothing landed, so success would be a lie. A
-		// partial disagreement is not this case — confirmed_fields already reports
-		// which changes took — and an attribute Lucid merely omitted is not either,
-		// since SCIM permits returning a subset of the resource and absence carries
-		// no information. Only "it spoke about them, and it contradicted all of
-		// them" is an unambiguous no-op.
-		if contradicted := contradictedFields(payload, confirmed); len(contradicted) > 0 && len(matched) == 0 {
+		// Every requested field came back disagreeing: nothing landed, so success
+		// would be a lie. The test is against all of updated_fields, not just the
+		// ones Lucid spoke about, because an omitted attribute carries no
+		// information — SCIM permits returning a subset of the resource — and must
+		// not help condemn the update. Anything less than unanimous disagreement is
+		// a partial application, which confirmed_fields already reports precisely.
+		if contradicted := contradictedFields(payload, confirmed); len(contradicted) == len(updated) {
 			return nil, nil, status.Errorf(codes.FailedPrecondition,
 				"baton-lucidchart: update_user %s: Lucid's post-update user contradicts the requested value for every "+
-					"attribute it reported (%s); the update did not take effect", userID, strings.Join(contradicted, ", "))
+					"field (%s); the update did not take effect", userID, strings.Join(contradicted, ", "))
 		}
 		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(matched, ", ")))
 	}
