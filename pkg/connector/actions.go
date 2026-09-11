@@ -38,6 +38,28 @@ func isKnownScimRole(role string) bool {
 	return false
 }
 
+// resolveScimRole returns the SCIM role name to send for a caller-supplied
+// role. Native SCIM names pass through unchanged; REST names (kebab-case, as
+// account creation takes) are translated via restRoleToScim. A REST role with
+// no SCIM counterpart gets its own error, because reporting it as merely
+// "invalid" alongside the SCIM enum hides the real problem: the role exists,
+// Lucid's SCIM surface just cannot express it.
+func resolveScimRole(role string) (string, error) {
+	if isKnownScimRole(role) {
+		return role, nil
+	}
+	if scimRole, ok := restRoleToScimRole(role); ok {
+		return scimRole, nil
+	}
+	if isKnownRestRole(role) {
+		return "", fmt.Errorf(
+			"role %q has no SCIM equivalent, so it cannot be set by update_user: Lucid's SCIM roles are %v. "+
+				"This role can only be assigned when the account is created",
+			role, knownScimRoles)
+	}
+	return "", fmt.Errorf("invalid role %q (valid SCIM roles: %v)", role, knownScimRoles)
+}
+
 const (
 	actionUpdateUser  = "update_user"
 	actionDisableUser = "disable_user"
@@ -57,9 +79,11 @@ var updateUserSchema = &v2.BatonActionSchema{
 		{
 			Name:        "user_profile",
 			DisplayName: "User Profile Data",
-			Description: "A JSON object of attributes to update (firstName, lastName, email, username, roles).",
-			Field:       &config.Field_StringField{},
-			IsRequired:  true,
+			Description: "A JSON object of attributes to update (firstName, lastName, email, username, roles). " +
+				"roles accepts either SCIM names (AccountAdmin) or the kebab-case names account creation takes (team-admin); " +
+				"account-owner, group-admin, organizational-group-admin and team-manager have no SCIM equivalent and are rejected.",
+			Field:      &config.Field_StringField{},
+			IsRequired: true,
 		},
 	},
 	ReturnTypes: []*config.Field{
@@ -160,13 +184,16 @@ func (c *Connector) updateUserHandler(
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: %v", err)
 		}
+		scimRoles := make([]string, 0, len(roles))
 		for _, role := range roles {
-			if !isKnownScimRole(role) {
-				return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: invalid role %q (valid SCIM roles: %v)", role, knownScimRoles)
+			scimRole, err := resolveScimRole(role)
+			if err != nil {
+				return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: %v", err)
 			}
+			scimRoles = append(scimRoles, scimRole)
 		}
-		payload.Roles = roles
-		if len(roles) > 0 {
+		payload.Roles = scimRoles
+		if len(scimRoles) > 0 {
 			updated = append(updated, "roles")
 		}
 	}

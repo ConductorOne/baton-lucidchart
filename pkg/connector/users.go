@@ -19,9 +19,9 @@ import (
 
 // knownRestRoles is the set of role strings accepted by Lucid's REST
 // POST /v1/users (Create User) endpoint (kebab-case).
-// Source: https://lucid.readme.io/reference/createuser — 11 enum values total;
-// 10 are confirmed (the 11th is behind an interactive expand the page fetcher
-// cannot reach). List sourced from reviewer citation on PR #54.
+// Source: https://lucid.readme.io/reference/createuser — the enum holds exactly
+// these 10 values (an earlier note here guessed at an 11th hidden behind an
+// interactive expand; re-reading the spec confirms there is none).
 var knownRestRoles = []string{
 	"billing-admin", "team-admin", "document-admin", "template-admin",
 	"account-owner", "developer", "enterprise-shield-admin", "group-admin",
@@ -35,6 +35,40 @@ func isKnownRestRole(role string) bool {
 		}
 	}
 	return false
+}
+
+// restRoleToScim maps the REST role strings accepted by POST /v1/users
+// (knownRestRoles) onto the SCIM role strings accepted by PATCH /Users/{id}
+// (knownScimRoles, in actions.go). Lucid publishes the two enums independently
+// and no crosswalk between them, but the correspondence is determinate: five of
+// the six SCIM values are exact PascalCase transliterations of their REST
+// spelling, and the sixth, AccountAdmin, is the SCIM name for the role both the
+// REST enum and Lucid's developer docs still call team-admin — the admin panel
+// renamed "Team Admin" to "Account Admin" while the API kept the older
+// spelling (https://lucid.readme.io/docs/admin-controls still gates the
+// developer role on "an Account Owner or Team Admin").
+//
+// The four REST roles deliberately absent here — account-owner, group-admin,
+// organizational-group-admin and team-manager — have no SCIM counterpart at
+// all: account ownership and the group-scoped roles are not members of the
+// six-value SCIM enum, so they can be set when an account is created and never
+// changed afterwards over SCIM. update_user rejects them by name rather than
+// reporting them as unrecognized roles.
+var restRoleToScim = map[string]string{
+	"billing-admin":           "BillingAdmin",
+	"developer":               "Developer",
+	"document-admin":          "DocumentAdmin",
+	"enterprise-shield-admin": "EnterpriseShieldAdmin",
+	"team-admin":              "AccountAdmin",
+	"template-admin":          "TemplateAdmin",
+}
+
+// restRoleToScimRole translates a REST-style (kebab-case) role name into its
+// SCIM (PascalCase) equivalent. ok is false when role is not a REST role at
+// all, or is a REST role Lucid's SCIM enum cannot express.
+func restRoleToScimRole(role string) (string, bool) {
+	scim, ok := restRoleToScim[role]
+	return scim, ok
 }
 
 type userBuilder struct {
