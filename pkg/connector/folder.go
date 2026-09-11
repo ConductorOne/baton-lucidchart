@@ -143,12 +143,23 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 		// Best-effort: any read error falls through to the authoritative upsert.
 		current, err := o.client.GetFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
-			// Debug, not Warn: this can recur on every grant for tenants without the GET.
-			l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
-				zap.String("folder_id", folderId),
-				zap.String("user_id", userId),
-				zap.Error(err),
-			)
+			// Warn only for 403, the one failure the client can act on (grant the
+			// share-read scope). Everything else — the expected 404, 5xx, timeouts,
+			// tenants without the GET — stays at Debug: nobody can act on it, and it
+			// can recur on every grant.
+			if client.IsPermissionDeniedError(err) {
+				l.Warn("baton-lucidchart: folder collaborator pre-check GET denied — check OAuth scope; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			} else {
+				l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			}
 		} else if current.Role == role {
 			// Return the grant alongside GrantAlreadyExists so C1 materializes the
 			// membership now instead of waiting for the next sync; the annotation
@@ -166,14 +177,21 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// Lucid's upsert is documented as never returning 409 today, but if it
 			// ever does, treat it as an idempotent success rather than a failure.
 			// Return the grant alongside the annotation for the same reason as the
-			// pre-check path above. metaRole is the entitlement's own role, so it is
-			// always known; metaCreated comes from the 409 body when Lucid returns
-			// the conflicting record (the upsert decodes the body before checking the
-			// status), and is omitted rather than fabricated when it does not.
+			// pre-check path above. When Lucid returns the conflicting record in the
+			// 409 body (the upsert decodes it before checking the status), that
+			// record is authoritative: a conflict most likely means the user already
+			// holds a *different* role, so metaRole/metaCreated both come from it.
+			// The requested role is only the fallback for a bare error envelope, and
+			// metaCreated is omitted rather than fabricated from a zero time.
 			if client.IsConflictError(err) {
 				metadata := map[string]interface{}{metaRole: role}
-				if response != nil && !response.Created.IsZero() {
-					metadata[metaCreated] = response.Created.String()
+				if response != nil {
+					if response.Role != "" {
+						metadata[metaRole] = response.Role
+					}
+					if !response.Created.IsZero() {
+						metadata[metaCreated] = response.Created.String()
+					}
 				}
 				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
 				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil

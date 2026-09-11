@@ -158,6 +158,32 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.Len(t, noopGrants, 1)
 		require.Equal(t, grantMetadata(t, noopGrants[0]), meta)
 	})
+
+	// The likeliest reading of a real 409 on an upsert is "the user already holds
+	// a *different* role". The decoded record is authoritative, so metaRole must
+	// report the role upstream actually has, not the one we asked for — otherwise
+	// the emitted grant asserts access the user does not hold until the next sync
+	// corrects it.
+	t.Run("upsert 409 carrying a different role reports the conflicting role", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "view" // upstream role, different from the one granted
+		cts.putStatus = http.StatusConflict
+		cts.putErrorReturnsRecord = 1
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		// The pre-check GET sees "view" != "edit", so it falls through to the
+		// upsert, which 409s with the conflicting "view" record.
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.NoError(t, err)
+		require.True(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Len(t, grants, 1)
+		require.Equal(t, int64(1), cts.putCallCount())
+
+		meta := grantMetadata(t, grants[0])
+		require.Equal(t, "view", meta[metaRole],
+			"metaRole must come from the 409 record, not the requested role")
+		require.Equal(t, "2024-01-01 00:00:00 +0000 UTC", meta[metaCreated])
+	})
 }
 
 // CXH-1919 regression: the upsert-success path used to pass the user principal
