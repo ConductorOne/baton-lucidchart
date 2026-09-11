@@ -95,8 +95,8 @@ var updateUserSchema = &v2.BatonActionSchema{
 			Name:        retConfirmedFields,
 			DisplayName: "SCIM-Confirmed Fields",
 			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
-				"Present but empty when Lucid returned a resource body that confirmed none of them. Omitted entirely " +
-				"when Lucid answered without a resource body and so confirmed nothing.",
+				"Omitted entirely when Lucid answered without a resource body and so confirmed nothing. Never empty: a " +
+				"resource body that confirmed none of the requested fields fails the action instead.",
 			Field: &config.Field_StringField{},
 		},
 	},
@@ -236,9 +236,19 @@ func (c *Connector) updateUserHandler(
 	// of the requested changes it actually echoed back, rather than implying all
 	// of updated_fields landed. Omitted entirely when Lucid answered without a
 	// resource body, so an empty confirmed_fields only ever means "Lucid told us
-	// the post-update state and none of the requested values were in it" — the
-	// failure worth noticing — and never "Lucid stayed silent".
+	// the post-update state and echoed none of the requested attributes back" and
+	// never "Lucid stayed silent".
 	if !confirmed.IsZero() {
+		// A field Lucid echoed back with a *different* value is a change that
+		// demonstrably did not take effect; reporting success would let it close
+		// out as applied. An attribute Lucid merely omitted is not that — SCIM
+		// servers may return a subset of the resource — so it stays unconfirmed
+		// rather than failing an update that may well have landed.
+		if contradicted := contradictedFields(payload, confirmed); len(contradicted) > 0 {
+			return nil, nil, status.Errorf(codes.FailedPrecondition,
+				"baton-lucidchart: update_user %s: Lucid's post-update user contradicts the requested value for %s; "+
+					"the update did not take effect", userID, strings.Join(contradicted, ", "))
+		}
 		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(confirmedFields(payload, confirmed), ", ")))
 	}
 
@@ -340,8 +350,16 @@ func (c *Connector) setUserActive(
 	// Omitted entirely when Lucid answered without a resource body, so an absent
 	// field reads as "unconfirmed" and never as "confirmed false".
 	fields := []actions.ReturnField{}
-	if confirmed.GetActive() != nil {
-		fields = append(fields, actions.NewBoolReturnField(retActive, *confirmed.GetActive()))
+	if got := confirmed.GetActive(); got != nil {
+		// Lucid answered without an HTTP error but its post-update body contradicts
+		// what was asked for. Returning success here would report a disable that
+		// plainly did not happen as a completed one.
+		if *got != active {
+			return nil, annos, status.Errorf(codes.FailedPrecondition,
+				"baton-lucidchart: %s %s: Lucid confirmed active=%t after a request to set active=%t; the change did not take effect",
+				op, userID, *got, active)
+		}
+		fields = append(fields, actions.NewBoolReturnField(retActive, *got))
 	}
 
 	result := actions.NewReturnValues(true, fields...)

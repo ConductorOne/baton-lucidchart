@@ -294,9 +294,9 @@ func TestUpdateUserHandler_NoResponseBodyOmitsConfirmedFields(t *testing.T) {
 }
 
 // Lucid returned the post-update user and none of the requested values were in
-// it. That is the failure this reporting exists to surface, so the field must be
-// present and empty rather than indistinguishable from a bodyless response.
-func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReportsEmptyConfirmedFields(t *testing.T) {
+// it. Nothing observably changed, so the action must fail rather than report a
+// success whose confirmed_fields is empty.
+func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReturnsFailedPrecondition(t *testing.T) {
 	c := scimActionConnector(t, jsonBody(`{
 		"id": "lucid-7",
 		"userName": "someone.else",
@@ -310,13 +310,9 @@ func TestUpdateUserHandler_ResponseBodyConfirmingNothing_ReportsEmptyConfirmedFi
 	require.NoError(t, err)
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
-	require.NoError(t, err)
-
-	fields := res.AsMap()
-	require.Equal(t, true, fields["success"])
-	require.Equal(t, "firstName, lastName", fields["updated_fields"])
-	require.Contains(t, fields, "confirmed_fields")
-	require.Equal(t, "", fields["confirmed_fields"])
+	require.Error(t, err)
+	require.Nil(t, res)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
 func TestUpdateUserHandler_ConfirmsRolesRegardlessOfOrder(t *testing.T) {
@@ -362,6 +358,36 @@ func TestSetUserActiveHandlers_ReturnConfirmedActiveState(t *testing.T) {
 			fields := res.AsMap()
 			require.Equal(t, true, fields["success"])
 			require.Equal(t, tc.wantBool, fields["active"])
+		})
+	}
+}
+
+// Lucid answered without an HTTP error but its body contradicts the requested
+// state. A disable that plainly did not happen must not close out as a success.
+func TestSetUserActiveHandlers_ConfirmedStateContradictsRequest_ReturnsFailedPrecondition(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string
+		disable bool
+	}{
+		{name: "disable confirmed still active", body: `{"id":"lucid-7","active":true}`, disable: true},
+		{name: "enable confirmed still inactive", body: `{"id":"lucid-7","active":false}`, disable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := scimActionConnector(t, jsonBody(tc.body))
+
+			args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+			require.NoError(t, err)
+
+			handler := c.enableUserHandler
+			if tc.disable {
+				handler = c.disableUserHandler
+			}
+
+			res, _, err := handler(context.Background(), args)
+			require.Error(t, err)
+			require.Nil(t, res)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
 		})
 	}
 }
