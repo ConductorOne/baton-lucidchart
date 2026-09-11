@@ -111,16 +111,23 @@ func NewLucidchartClient(
 // "users.lucid.app/scim/v2" as a relative path, which only fails much later and
 // far less legibly when a request is built from it. Rejecting both here turns a
 // typo into a config error naming the flag rather than a mid-sync surprise.
+//
+// https alone is not enough either. The scheme only proves nobody is reading the
+// tokens in transit; it says nothing about who is on the other end. Both
+// Enterprise SCIM bearer tokens are sent wherever this points, so a misspelled
+// host — or one pasted from the wrong place — would hand them to a third party
+// over a perfectly valid TLS connection. Requiring a Lucid-owned domain keeps
+// that mistake a startup error instead of a silent credential leak.
 func validateScimBaseURL(scimBaseURL string) error {
 	parsed, err := url.Parse(scimBaseURL)
 	if err != nil {
 		return fmt.Errorf("baton-lucidchart: scim-base-url %q is not a valid URL: %w", scimBaseURL, err)
 	}
 
-	// http is tolerated for loopback only, where the cleartext never leaves the
-	// machine and no observer can reach it. That keeps the constructor — and
-	// therefore its validation — exercisable against a local test server.
-	if parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname()) {
+	// Loopback is tolerated, cleartext included: it never leaves the machine and
+	// no observer — or impostor — can reach it. That keeps the constructor, and
+	// therefore its validation, exercisable against a local test server.
+	if isLoopbackHost(parsed.Hostname()) && (parsed.Scheme == "http" || parsed.Scheme == "https") {
 		return nil
 	}
 
@@ -132,7 +139,38 @@ func validateScimBaseURL(scimBaseURL string) error {
 		)
 	}
 
+	if !isLucidHost(parsed.Hostname()) {
+		return fmt.Errorf(
+			"baton-lucidchart: scim-base-url must point at a Lucid-owned domain (%s, or a subdomain of one, for example %s), got host %q from %q",
+			strings.Join(lucidScimDomains, ", "),
+			LucidScimUrl,
+			parsed.Hostname(),
+			scimBaseURL,
+		)
+	}
+
 	return nil
+}
+
+// lucidScimDomains are the registrable domains Lucid serves SCIM from:
+// lucid.app for commercial tenants, lucidgov.app for FedRAMP/GovSuite, and
+// lucid.co alongside the REST API.
+var lucidScimDomains = []string{"lucid.app", "lucidgov.app", "lucid.co"}
+
+// isLucidHost reports whether host is one of lucidScimDomains or a subdomain of
+// one. The match is anchored on a label boundary rather than a bare substring,
+// so "evil-lucid.app.attacker.com" and "notlucid.app" are both rejected.
+func isLucidHost(host string) bool {
+	// A trailing dot is a legal fully-qualified form and names the same host.
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
+	for _, domain := range lucidScimDomains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isLoopbackHost reports whether host names the local machine.
