@@ -28,9 +28,10 @@ baton-lucidchart \
     --lucid-refresh-token="" \
     --lucid-api-key="" \
     --lucid-scim-token="" \
-    --lucid-content-transfer-user-email="" \
-    --exclude-shortcuts
+    --lucid-content-transfer-user-email=""
 ```
+
+The last two flags are optional and can be omitted entirely; `--exclude-shortcuts` is deliberately left out of this example because it is a boolean — copying it in would silently drop shortcut documents and folders from the sync.
 
 ### Optional flags
 
@@ -40,12 +41,14 @@ baton-lucidchart \
 
 ### Authentication
 
-`--lucid-api-key` is always required. The OAuth2 access token is obtained one of two ways, and the connector picks the mode at startup (`pkg/connector/connector.go:112`):
+`--lucid-api-key` is always required. The OAuth2 access token is obtained one of two ways, and `connector.New` picks the mode at startup:
 
 | Mode | Flags | When |
 | :--- | :--- | :--- |
 | Self-hosted / CLI | `--lucid-client-id`, `--lucid-client-secret`, `--lucid-refresh-token` | Running the binary yourself. The connector exchanges the refresh token against `https://api.lucid.co/oauth2/token`. |
 | C1-hosted | `--oauth2` | Running inside ConductorOne. The SDK supplies the token source; the client/secret/refresh flags are unused. |
+
+The selector is `--lucid-refresh-token`, not `--oauth2`: the C1-hosted token source is used only when the refresh token is empty. If both are supplied, refresh-token mode wins and the SDK token source is ignored.
 
 `--lucid-refresh-token` is hidden from `--help` because it is CLI-only, but it is the correct flag for local runs.
 
@@ -56,10 +59,12 @@ baton-lucidchart \
 | Operation | Needs `--lucid-scim-token` |
 | :--- | :--- |
 | Sync (users, folders, documents) | No |
-| Account creation | No |
+| Account creation | No* |
 | Folder / document grant and revoke | No |
 | User delete | Yes |
 | `disable_user` / `enable_user` / `update_user` actions | Yes |
+
+*Account creation needs no SCIM token, but it is still an Enterprise-only feature on Lucid's side — the provisioning endpoint is restricted to accounts with Enterprise licenses.
 
 ## brew
 
@@ -95,7 +100,7 @@ baton resources
 - Folders
 - Documents
 
-Folders and documents are synced with their collaborator grants (user, group and account collaborators), so the connector reports who has access to what, not just the account roster.
+Folders and documents are synced with their user collaborator grants, so the connector reports who has access to what, not just the account roster. Group and account collaborators are not currently synced.
 
 # Contributing, Support and Issues
 
