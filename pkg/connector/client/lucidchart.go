@@ -13,6 +13,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var UserFolderRoles = []string{
@@ -98,7 +100,12 @@ func NewLucidchartClient(
 	if scimBaseURL == "" {
 		scimBaseURL = string(LucidScimUrl)
 	} else if err := validateScimBaseURL(scimBaseURL); err != nil {
-		scimBaseURLErr = err
+		// FailedPrecondition, not a bare error: this is a configuration problem,
+		// and retrying it cannot help until scim-base-url is corrected. An
+		// unclassified error reaches the platform as codes.Unknown and gets
+		// retried forever — the same trap the content-access 401/403 branch in
+		// users.go avoids.
+		scimBaseURLErr = status.Error(codes.FailedPrecondition, err.Error())
 		ctxzap.Extract(ctx).Warn(
 			"baton-lucidchart: scim-base-url rejected; SCIM actions and deprovisioning are disabled, sync is unaffected",
 			zap.Error(err),
@@ -204,6 +211,20 @@ func isLoopbackHost(host string) bool {
 	ip := net.ParseIP(host)
 
 	return ip != nil && ip.IsLoopback()
+}
+
+// ScimBaseURLErr returns why the SCIM surface is disabled, or nil when it is
+// usable. Callers that cause side effects before their first SCIM call must
+// check this up front: ScimConfigured only reports that a token was supplied,
+// and stays true when the SCIM URL was rejected.
+func (c *LucidchartClient) ScimBaseURLErr() error {
+	return c.scimBaseURLErr
+}
+
+// ScimUsable reports whether a SCIM call can actually be made: a token is
+// configured and the SCIM base URL was accepted.
+func (c *LucidchartClient) ScimUsable() bool {
+	return c.ScimConfigured() && c.scimBaseURLErr == nil
 }
 
 // ScimConfigured reports whether the admin-management SCIM bearer token was

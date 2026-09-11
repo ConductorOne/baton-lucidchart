@@ -266,25 +266,36 @@ func (c *Connector) updateUserHandler(
 // body — a legitimate SCIM response and not a failure — and when the body it did
 // return confirmed nothing, so callers that need to distinguish those two must
 // check confirmed.IsZero() themselves.
+//
+// It matches on the same terms contradictedFields disagrees on — case-insensitive
+// strings, roles by subset — so the two can never both decline the same
+// attribute. Were they to disagree, a value Lucid case-normalized (or a role set
+// it returned with an extra entry) would count as neither confirmed nor
+// contradicted and report an empty confirmed_fields, which is the alarming
+// "Lucid echoed nothing back" signal, for a change that plainly landed.
 func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
 	if confirmed.IsZero() {
 		return nil
 	}
 
+	matches := func(requested, got string) bool {
+		return requested != "" && strings.EqualFold(requested, got)
+	}
+
 	var out []string
-	if payload.FirstName != "" && confirmed.Name != nil && confirmed.Name.GivenName == payload.FirstName {
+	if confirmed.Name != nil && matches(payload.FirstName, confirmed.Name.GivenName) {
 		out = append(out, "firstName")
 	}
-	if payload.LastName != "" && confirmed.Name != nil && confirmed.Name.FamilyName == payload.LastName {
+	if confirmed.Name != nil && matches(payload.LastName, confirmed.Name.FamilyName) {
 		out = append(out, "lastName")
 	}
-	if payload.Email != "" && confirmed.PrimaryEmail() == payload.Email {
+	if matches(payload.Email, confirmed.PrimaryEmail()) {
 		out = append(out, "email")
 	}
-	if payload.Username != "" && confirmed.UserName == payload.Username {
+	if matches(payload.Username, confirmed.UserName) {
 		out = append(out, "username")
 	}
-	if len(payload.Roles) > 0 && sameRoles(payload.Roles, confirmed.RoleValues()) {
+	if len(payload.Roles) > 0 && containsAllRoles(confirmed.RoleValues(), payload.Roles) {
 		out = append(out, "roles")
 	}
 	return out
@@ -339,7 +350,9 @@ func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.Sci
 
 // containsAllRoles reports whether every requested role is present in got. It is
 // a subset test, not set equality: Lucid echoing back roles beyond the ones that
-// were requested is an effective role set, not a rejection of the request.
+// were requested is an effective role set, not a rejection of the request. Order
+// is irrelevant — SCIM does not guarantee a multi-valued attribute comes back in
+// the order it was sent.
 func containsAllRoles(got, requested []string) bool {
 	have := make(map[string]struct{}, len(got))
 	for _, r := range got {
@@ -349,25 +362,6 @@ func containsAllRoles(got, requested []string) bool {
 		if _, ok := have[strings.ToLower(r)]; !ok {
 			return false
 		}
-	}
-	return true
-}
-
-// sameRoles compares two role sets irrespective of order; SCIM does not
-// guarantee a multi-valued attribute comes back in the order it was sent.
-func sameRoles(requested, confirmed []string) bool {
-	if len(requested) != len(confirmed) {
-		return false
-	}
-	remaining := make(map[string]int, len(confirmed))
-	for _, r := range confirmed {
-		remaining[r]++
-	}
-	for _, r := range requested {
-		if remaining[r] == 0 {
-			return false
-		}
-		remaining[r]--
 	}
 	return true
 }

@@ -84,6 +84,32 @@ func deleteUser(t *testing.T, srv *httptest.Server, transferEmail string) error 
 	return err
 }
 
+// A rejected scim-base-url leaves ScimConfigured() true, so Delete must gate on
+// the SCIM URL as well. Otherwise the content transfer — which runs over REST
+// and succeeds regardless — moves the leaving user's documents to the recipient
+// and only then discovers the delete cannot happen: an irreversible side effect
+// in service of an operation that can never complete. The failure must also be
+// terminal, or the platform retries and re-runs the transfer forever.
+func TestDelete_RejectedScimBaseURL_TransfersNothingAndIsTerminal(t *testing.T) {
+	routes := &deleteRoutes{}
+	srv := newDeleteServer(t, routes, http.StatusOK, http.StatusOK, http.StatusNoContent)
+	defer srv.Close()
+
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
+	c, err := client.NewLucidchartClient(context.Background(), "api-key", ts, srv.URL, "scim-test-token", "https://scim.example.com/scim/v2", "")
+	require.NoError(t, err, "a rejected SCIM URL must not fail construction")
+
+	b := newUserBuilder(c, "recipient@example.com")
+	_, err = b.Delete(context.Background(), &v2.ResourceId{Resource: "42"}, nil)
+
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Contains(t, err.Error(), "scim-base-url")
+	require.False(t, routes.transfer, "no content may be transferred when the delete cannot proceed")
+	require.False(t, routes.getUser, "the delete must fail before any REST side effect")
+	require.False(t, routes.scimDelete)
+}
+
 // Lucid's GET /v1/users/{id} answers 403 — never 404 — for a user that does not
 // exist. Delete must still complete, or every retry of an already-processed
 // deprovision fails forever.

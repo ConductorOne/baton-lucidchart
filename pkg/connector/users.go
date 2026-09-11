@@ -281,6 +281,16 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 		return nil, status.Error(codes.Unimplemented, "baton-lucidchart: delete user: SCIM not configured (a SCIM bearer token, Enterprise tier, is required for deprovisioning)")
 	}
 
+	// Fail before the content transfer, not after it. The transfer runs over REST
+	// and succeeds regardless of the SCIM surface, so reaching it with an unusable
+	// SCIM URL would move the leaving user's documents to the recipient and then
+	// fail the delete — an irreversible side effect in service of an operation
+	// that cannot complete, repeated on every retry.
+	if err := o.client.ScimBaseURLErr(); err != nil {
+		return nil, fmt.Errorf("baton-lucidchart: delete user %s: SCIM is unavailable, no part of the delete was attempted: %w",
+			resourceID.Resource, err)
+	}
+
 	userID := resourceID.Resource
 
 	if o.contentTransferUserEmail != "" {
