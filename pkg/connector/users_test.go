@@ -17,8 +17,13 @@ import (
 
 func testLucidClient(t *testing.T, restURL, scimURL string) *client.LucidchartClient {
 	t.Helper()
+	return testLucidClientWithContentToken(t, restURL, scimURL, "")
+}
+
+func testLucidClientWithContentToken(t *testing.T, restURL, scimURL, contentScimToken string) *client.LucidchartClient {
+	t.Helper()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
-	c, err := client.NewLucidchartClient(context.Background(), "api-key", ts, restURL, "scim-test-token", scimURL)
+	c, err := client.NewLucidchartClient(context.Background(), "api-key", ts, restURL, "scim-test-token", scimURL, contentScimToken)
 	require.NoError(t, err)
 	return c
 }
@@ -375,3 +380,137 @@ func TestUserResource_MissingEnabledDefaultsToEnabled(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// --- Second SCIM integration ("SCIM for content access") ---------------------
+//
+// Both integrations are served from the same base URL and the same
+// /Users/{id} path; only the bearer token differs. These tests therefore route
+// on the Authorization header, which is exactly what Lucid does.
+
+const (
+	adminScimAuth   = "Bearer scim-test-token"
+	contentScimAuth = "Bearer content-scim-test-token"
+	contentScimTok  = "content-scim-test-token"
+)
+
+// dualScimRoutes records the SCIM deletes seen per integration.
+type dualScimRoutes struct {
+	adminDeletes   int
+	contentDeletes int
+	unknownAuth    []string
+}
+
+// newDualScimServer answers DELETE /Users/lucid-42 differently depending on
+// which SCIM bearer token the request carries.
+func newDualScimServer(t *testing.T, routes *dualScimRoutes, adminStatus, contentStatus int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/Users/lucid-42" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		switch r.Header.Get("Authorization") {
+		case adminScimAuth:
+			routes.adminDeletes++
+			w.WriteHeader(adminStatus)
+		case contentScimAuth:
+			routes.contentDeletes++
+			w.WriteHeader(contentStatus)
+		default:
+			routes.unknownAuth = append(routes.unknownAuth, r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+}
+
+func deleteUserWithContentToken(t *testing.T, srv *httptest.Server, contentScimToken string) error {
+	t.Helper()
+	c := testLucidClientWithContentToken(t, srv.URL, srv.URL, contentScimToken)
+	b := newUserBuilder(c, "")
+	_, err := b.Delete(context.Background(), &v2.ResourceId{Resource: "42"}, nil)
+	return err
+}
+
+// With no content-access token configured, Delete must behave exactly as before:
+// one SCIM delete, against the admin-management integration only.
+func TestDelete_NoContentScimToken_DeletesFromAdminManagementOnly(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusNoContent, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, routes.adminDeletes)
+	require.Zero(t, routes.contentDeletes, "content-access delete must not be attempted when no token is configured")
+	require.Empty(t, routes.unknownAuth)
+}
+
+func TestDelete_ContentScimToken_DeletesFromBothIntegrations(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusNoContent, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, contentScimTok)
+	require.NoError(t, err)
+	require.Equal(t, 1, routes.adminDeletes)
+	require.Equal(t, 1, routes.contentDeletes)
+	require.Empty(t, routes.unknownAuth)
+}
+
+// The user being absent from the content-access integration is not a failure —
+// delete stays idempotent under the platform's retries.
+func TestDelete_ContentScimToken_ContentNotFoundIsSuccess(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusNoContent, http.StatusNotFound)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, contentScimTok)
+	require.NoError(t, err)
+	require.Equal(t, 1, routes.contentDeletes)
+}
+
+// The admin delete succeeded but the content-access delete did not. That is a
+// partial deprovisioning and must surface as an error, not a clean success.
+func TestDelete_ContentScimToken_ContentDeleteFails_SurfacesPartialDeprovisioning(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusNoContent, http.StatusInternalServerError)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, contentScimTok)
+	require.Error(t, err)
+	require.Equal(t, 1, routes.adminDeletes, "the admin-management delete must still have been attempted")
+	require.Equal(t, 1, routes.contentDeletes)
+	require.Contains(t, err.Error(), "PARTIAL DEPROVISIONING")
+	require.Contains(t, err.Error(), "content-access")
+}
+
+// A 409 from the content-access integration is a precondition failure, not a
+// transient one, and must not read as an idempotent AlreadyExists success.
+func TestDelete_ContentScimToken_ContentConflictIsFailedPrecondition(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusNoContent, http.StatusConflict)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, contentScimTok)
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "error must be a gRPC status error")
+	require.Equal(t, codes.FailedPrecondition, st.Code())
+	require.Contains(t, err.Error(), "PARTIAL DEPROVISIONING")
+}
+
+// When the admin-management delete fails, the content-access delete must not
+// run: the user is still fully provisioned, so there is no partial state yet.
+func TestDelete_ContentScimToken_AdminDeleteFails_SkipsContentDelete(t *testing.T) {
+	routes := &dualScimRoutes{}
+	srv := newDualScimServer(t, routes, http.StatusInternalServerError, http.StatusNoContent)
+	defer srv.Close()
+
+	err := deleteUserWithContentToken(t, srv, contentScimTok)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "PARTIAL DEPROVISIONING")
+	require.Equal(t, 1, routes.adminDeletes)
+	require.Zero(t, routes.contentDeletes)
+}

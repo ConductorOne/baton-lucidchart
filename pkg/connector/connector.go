@@ -141,6 +141,7 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.Connect
 		connectorConfig.BaseUrl,
 		connectorConfig.LucidScimToken,
 		connectorConfig.ScimBaseUrl,
+		connectorConfig.LucidContentScimToken,
 	)
 	if err != nil {
 		return nil, nil, err

@@ -269,6 +269,11 @@ func userResource(user client.User) (*v2.Resource, error) {
 // deprovisioning surface). When a content-transfer user is configured, the
 // deleted user's documents are transferred first so they are retained.
 //
+// Lucid runs two SCIM integrations behind one base URL — admin management
+// (organizational groups) and content access (teams) — selected by which bearer
+// token a call carries. When the content-access token is configured, the user is
+// deleted from both, admin management first.
+//
 // Not-found is treated as success: the platform retries failed deletes, and a
 // connector that errored on an already-deleted user would fail every retry.
 func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
@@ -290,7 +295,6 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 	switch {
 	case err == nil, client.IsNotFoundError(err):
 		// nil = just deleted; not-found = already deleted. Both are success.
-		return annos, nil
 	case client.IsConflictError(err):
 		// Raw 409 surfaces as AlreadyExists, which reads as an idempotent
 		// success and would let a failed offboarding look complete.
@@ -300,6 +304,48 @@ func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, par
 			userID, err)
 	default:
 		return annos, fmt.Errorf("baton-lucidchart: delete user %s: %w", userID, err)
+	}
+
+	// Admin management is done. Propagate to the content-access integration when
+	// it is configured; otherwise behaviour is unchanged from a single-integration
+	// delete.
+	if err := o.deleteFromContentAccess(ctx, userID); err != nil {
+		return annos, err
+	}
+
+	return annos, nil
+}
+
+// deleteFromContentAccess removes the user from Lucid's "SCIM for content
+// access" integration, when that second token is configured.
+//
+// A failure here is deliberately not swallowed: the admin-management delete has
+// already succeeded, so reporting a clean success would hide a user who still
+// holds team-level content access. The error names both halves so the partial
+// state is unambiguous to whoever reads it.
+func (o *userBuilder) deleteFromContentAccess(ctx context.Context, userID string) error {
+	if !o.client.ContentScimConfigured() {
+		return nil
+	}
+
+	_, err := o.client.ScimDeleteUserContentAccess(ctx, userID)
+	switch {
+	case err == nil, client.IsNotFoundError(err):
+		// nil = just deleted; not-found = already absent from that integration.
+		return nil
+	case client.IsConflictError(err):
+		return status.Errorf(codes.FailedPrecondition,
+			"baton-lucidchart: delete user %s: PARTIAL DEPROVISIONING — the user was removed from the SCIM admin-management "+
+				"integration but Lucid refused the content-access delete (409); they may still hold team content access. "+
+				"The user is an account owner or a default document owner on the content-access integration; reassign that "+
+				"role in Lucid and retry (%v)",
+			userID, err)
+	default:
+		return fmt.Errorf(
+			"baton-lucidchart: delete user %s: PARTIAL DEPROVISIONING — the user was removed from the SCIM admin-management "+
+				"integration but NOT from the SCIM content-access integration, so they may still hold team content access; "+
+				"retry the delete or remove them from content access in Lucid: %w",
+			userID, err)
 	}
 }
 

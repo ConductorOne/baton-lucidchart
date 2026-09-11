@@ -35,6 +35,11 @@ var LucidchartApiUrl ClientUrl = "https://api.lucid.co"
 // LucidScimUrl is the default SCIM 2.0 base URL. SCIM is a separate surface
 // from the REST API: a different host, a separate (Enterprise-tier) bearer
 // token, and SCIM 2.0 JSON bodies. It is the official user-deprovisioning path.
+//
+// Lucid runs two SCIM integrations — "SCIM for admin management" (organizational
+// groups) and "SCIM for content access" (teams) — behind this single base URL.
+// The bearer token alone decides which integration a request reaches.
+// https://developer.lucid.co/reference/overview-scim
 var LucidScimUrl ClientUrl = "https://users.lucid.app/scim/v2"
 
 type LucidchartClient struct {
@@ -42,14 +47,26 @@ type LucidchartClient struct {
 	tokenSource oauth2.TokenSource
 	apiKey      string
 	baseURL     string
-	// scimToken is the separate Enterprise SCIM bearer token. When empty the
-	// SCIM deprovisioning operations (deactivate/delete) are unavailable.
+	// scimToken is the separate Enterprise SCIM bearer token for the "SCIM for
+	// admin management" integration. When empty the SCIM deprovisioning
+	// operations (deactivate/delete) are unavailable.
 	scimToken string
-	// scimBaseURL is the SCIM 2.0 base URL. Defaults to LucidScimUrl.
+	// contentScimToken is the bearer token for the second SCIM integration,
+	// "SCIM for content access" (teams). Optional and independent of scimToken:
+	// same base URL, different integration. When empty, content-access
+	// deprovisioning is skipped.
+	contentScimToken string
+	// scimBaseURL is the SCIM 2.0 base URL, shared by both integrations.
+	// Defaults to LucidScimUrl.
 	scimBaseURL string
 }
 
-func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.TokenSource, baseURL, scimToken, scimBaseURL string) (*LucidchartClient, error) {
+func NewLucidchartClient(
+	ctx context.Context,
+	apiKey string,
+	tokenSource oauth2.TokenSource,
+	baseURL, scimToken, scimBaseURL, contentScimToken string,
+) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -69,19 +86,32 @@ func NewLucidchartClient(ctx context.Context, apiKey string, tokenSource oauth2.
 	}
 
 	return &LucidchartClient{
-		client:      uhttpClient,
-		tokenSource: tokenSource,
-		apiKey:      apiKey,
-		baseURL:     baseURL,
-		scimToken:   scimToken,
-		scimBaseURL: scimBaseURL,
+		client:           uhttpClient,
+		tokenSource:      tokenSource,
+		apiKey:           apiKey,
+		baseURL:          baseURL,
+		scimToken:        scimToken,
+		contentScimToken: contentScimToken,
+		scimBaseURL:      scimBaseURL,
 	}, nil
 }
 
-// ScimConfigured reports whether a SCIM bearer token was supplied. The SCIM
-// deprovisioning operations require Lucid Enterprise tier and a separate token.
+// ScimConfigured reports whether the admin-management SCIM bearer token was
+// supplied. The SCIM deprovisioning operations require Lucid Enterprise tier
+// and a separate token.
+//
+// The content-access integration is an optional add-on, not a substitute: every
+// SCIM operation the connector performs still goes through the admin-management
+// token first, so this remains the precondition for all of them.
 func (c *LucidchartClient) ScimConfigured() bool {
 	return c.scimToken != ""
+}
+
+// ContentScimConfigured reports whether the second SCIM integration ("SCIM for
+// content access", which syncs to teams) has a bearer token. When true, a user
+// delete is also propagated to that integration.
+func (c *LucidchartClient) ContentScimConfigured() bool {
+	return c.contentScimToken != ""
 }
 
 func (c *LucidchartClient) newRequest(

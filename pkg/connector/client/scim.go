@@ -50,10 +50,29 @@ type ScimPatchOperation struct {
 // SCIM bearer token. Deprovisioning requires Lucid Enterprise tier.
 var errScimNotConfigured = errors.New("SCIM is not configured: a SCIM bearer token (Enterprise tier) is required for user deprovisioning")
 
-// newScimRequest builds a request against the SCIM base URL using the separate
-// SCIM bearer token and the content negotiation Lucid's SCIM surface documents.
+// errContentScimNotConfigured is returned when a content-access SCIM operation
+// is attempted without the second (content-access) bearer token.
+var errContentScimNotConfigured = errors.New("SCIM for content access is not configured: the lucid-content-scim-token bearer token is required for content-access deprovisioning")
+
+// newScimRequest builds a request against the SCIM base URL using the
+// admin-management SCIM bearer token and the content negotiation Lucid's SCIM
+// surface documents.
 func (c *LucidchartClient) newScimRequest(
 	ctx context.Context,
+	method string,
+	path string,
+	body interface{},
+) (*http.Request, error) {
+	return c.newScimRequestWithToken(ctx, c.scimToken, method, path, body)
+}
+
+// newScimRequestWithToken is the shared SCIM request builder. Lucid's two SCIM
+// integrations ("admin management" and "content access") share one base URL and
+// are distinguished only by the bearer token, so everything except the token is
+// identical between them.
+func (c *LucidchartClient) newScimRequestWithToken(
+	ctx context.Context,
+	token string,
 	method string,
 	path string,
 	body interface{},
@@ -66,7 +85,7 @@ func (c *LucidchartClient) newScimRequest(
 	urlAddress = urlAddress.JoinPath(path)
 
 	options := []uhttp.RequestOption{
-		uhttp.WithBearerToken(c.scimToken),
+		uhttp.WithBearerToken(token),
 		uhttp.WithAccept(scimContentType),
 	}
 
@@ -127,15 +146,33 @@ func (c *LucidchartClient) ScimUserExists(ctx context.Context, userID string) (b
 	return true, nil
 }
 
-// ScimDeleteUser permanently deletes a user via SCIM DELETE /Users/{id}. This
-// is a hard delete; callers should transfer owned content first when it must be
-// retained (see TransferContent).
+// ScimDeleteUser permanently deletes a user via SCIM DELETE /Users/{id} on the
+// admin-management integration. This is a hard delete; callers should transfer
+// owned content first when it must be retained (see TransferContent).
 func (c *LucidchartClient) ScimDeleteUser(ctx context.Context, userID string) (annotations.Annotations, error) {
 	if !c.ScimConfigured() {
 		return nil, errScimNotConfigured
 	}
 
-	req, err := c.newScimRequest(ctx, http.MethodDelete, fmt.Sprintf(ScimUserPath, scimResourceID(userID)), nil)
+	return c.scimDeleteUserWithToken(ctx, c.scimToken, userID)
+}
+
+// ScimDeleteUserContentAccess deletes a user from Lucid's second SCIM
+// integration, "SCIM for content access" (teams). Same base URL and same
+// /Users/{id} path as ScimDeleteUser — only the bearer token differs, which is
+// what routes the call to the other integration.
+func (c *LucidchartClient) ScimDeleteUserContentAccess(ctx context.Context, userID string) (annotations.Annotations, error) {
+	if !c.ContentScimConfigured() {
+		return nil, errContentScimNotConfigured
+	}
+
+	return c.scimDeleteUserWithToken(ctx, c.contentScimToken, userID)
+}
+
+// scimDeleteUserWithToken issues DELETE /Users/{id} with the given bearer
+// token, shared by both SCIM integrations.
+func (c *LucidchartClient) scimDeleteUserWithToken(ctx context.Context, token, userID string) (annotations.Annotations, error) {
+	req, err := c.newScimRequestWithToken(ctx, token, http.MethodDelete, fmt.Sprintf(ScimUserPath, scimResourceID(userID)), nil)
 	if err != nil {
 		return nil, err
 	}

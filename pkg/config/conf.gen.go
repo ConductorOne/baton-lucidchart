@@ -12,6 +12,7 @@ type Lucidchart struct {
 	ExcludeShortcuts              bool   `mapstructure:"exclude-shortcuts"`
 	BaseUrl                       string `mapstructure:"base-url"`
 	LucidScimToken                string `mapstructure:"lucid-scim-token"`
+	LucidContentScimToken         string `mapstructure:"lucid-content-scim-token"`
 	ScimBaseUrl                   string `mapstructure:"scim-base-url"`
 	LucidContentTransferUserEmail string `mapstructure:"lucid-content-transfer-user-email"`
 }

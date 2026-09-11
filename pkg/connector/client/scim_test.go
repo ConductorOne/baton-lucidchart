@@ -14,8 +14,13 @@ import (
 
 func testClient(t *testing.T, restURL, scimURL, scimToken string) *LucidchartClient {
 	t.Helper()
+	return testClientWithContentToken(t, restURL, scimURL, scimToken, "")
+}
+
+func testClientWithContentToken(t *testing.T, restURL, scimURL, scimToken, contentScimToken string) *LucidchartClient {
+	t.Helper()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: static token literal for tests, not a real credential
-	c, err := NewLucidchartClient(context.Background(), "api-key", ts, restURL, scimToken, scimURL)
+	c, err := NewLucidchartClient(context.Background(), "api-key", ts, restURL, scimToken, scimURL, contentScimToken)
 	require.NoError(t, err)
 	return c
 }
@@ -139,6 +144,54 @@ func TestScimNotConfigured(t *testing.T) {
 
 	_, err = c.ScimDeleteUser(context.Background(), "123")
 	require.ErrorIs(t, err, errScimNotConfigured)
+}
+
+// Lucid's two SCIM integrations share one base URL and one /Users/{id} path;
+// only the bearer token distinguishes them. ScimDeleteUserContentAccess must
+// therefore differ from ScimDeleteUser in exactly one respect: the token.
+func TestScimDeleteUserContentAccess(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClientWithContentToken(t, srv.URL, srv.URL, "scim-test-token", "content-scim-test-token")
+	require.True(t, c.ScimConfigured())
+	require.True(t, c.ContentScimConfigured())
+
+	_, err := c.ScimDeleteUserContentAccess(context.Background(), "abc")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodDelete, gotMethod)
+	require.Equal(t, "/Users/lucid-abc", gotPath)
+	require.Equal(t, "Bearer content-scim-test-token", gotAuth)
+}
+
+func TestScimDeleteUserUsesAdminTokenNotContentToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClientWithContentToken(t, srv.URL, srv.URL, "scim-test-token", "content-scim-test-token")
+
+	_, err := c.ScimDeleteUser(context.Background(), "abc")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer scim-test-token", gotAuth)
+}
+
+func TestContentScimNotConfigured(t *testing.T) {
+	c := testClient(t, "https://api.lucid.co", "", "scim-test-token")
+	require.True(t, c.ScimConfigured(), "the admin token alone must still configure SCIM")
+	require.False(t, c.ContentScimConfigured())
+
+	_, err := c.ScimDeleteUserContentAccess(context.Background(), "123")
+	require.ErrorIs(t, err, errContentScimNotConfigured)
 }
 
 func TestScimDefaultBaseURL(t *testing.T) {

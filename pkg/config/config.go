@@ -62,6 +62,20 @@ var (
 		field.WithIsSecret(true),
 	)
 
+	// LucidContentScimTokenField is the bearer token for Lucid's *second* SCIM
+	// integration. Lucid ships two: "SCIM for admin management" (organizational
+	// groups) and "SCIM for content access" (teams). Both are served from the
+	// same base URL — the token alone selects which integration a call hits.
+	LucidContentScimTokenField = field.StringField(
+		"lucid-content-scim-token",
+		field.WithDisplayName("Lucidchart Content Access SCIM Token"),
+		field.WithDescription("The SCIM 2.0 bearer token for Lucid's \"SCIM for content access\" integration, which syncs to teams. "+
+			"This is a second, separate token from lucid-scim-token (the \"SCIM for admin management\" integration, which syncs to "+
+			"organizational groups); both integrations share the same SCIM base URL and are distinguished only by the token. "+
+			"Optional: when set, deleting a user also deprovisions them from the content-access integration."),
+		field.WithIsSecret(true),
+	)
+
 	ScimBaseURLField = field.StringField(
 		"scim-base-url",
 		field.WithDescription("Override the Lucid SCIM base URL (for testing)"),
@@ -87,6 +101,7 @@ var (
 		ExcludeShortcutsField,
 		BaseURLField,
 		LucidScimTokenField,
+		LucidContentScimTokenField,
 		ScimBaseURLField,
 		LucidContentTransferUserEmailField,
 	}
