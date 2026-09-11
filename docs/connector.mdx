@@ -18,13 +18,13 @@ The Lucidchart connector supports [automatic account provisioning](/product/admi
 
 *Account provisioning is only available on Lucidchart accounts with Enterprise licenses. When creating an account with no roles specified, Lucid assigns its server-side default role.
 
-†Delete and the account actions require a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation still work, but these capabilities are unavailable.
+†Delete and the account actions require a Lucid Enterprise SCIM bearer token (`lucid-scim-token`). Without it, sync and account creation still work, but these capabilities are unavailable. See [Create a SCIM token](#create-a-scim-token) for how to generate one.
 
 When a new account is created by C1, the account's password will be sent to a [vault](/product/admin/vaults). 
 
 ### Account actions
 
-Three account actions run against the SCIM surface, so each one needs the `lucid-scim-token` described above:
+Three account actions run against the SCIM surface, so each one needs the `lucid-scim-token` described above (see [Create a SCIM token](#create-a-scim-token)):
 
 | Action | What it does |
 | :--- | :--- |
@@ -91,6 +91,30 @@ Click **Create OAuth 2.0 client**.
 Carefully copy and save the OAuth client ID and client secret.
 </Step>
 </Steps> 
+
+### Create a SCIM token
+
+This token is optional. Sync, folder and document provisioning, and account creation all work without it. You only need it if you want C1 to delete accounts or to run the `enable_user`, `disable_user` and `update_user` actions, which go through Lucid's SCIM surface.
+
+<Warning>
+SCIM is only available on Lucidchart accounts with Enterprise licenses, and Lucid support must enable it for your account before the page below appears. This task is performed by an account administrator in the Lucid **admin panel** — not in the developer portal.
+</Warning>
+
+<Steps>
+<Step>
+In the Lucid admin panel, navigate to **Admin** > **App Integration** > **SCIM**.
+
+   Don't see the **SCIM** page? Contact Lucid support to have SCIM enabled for your account.
+</Step>
+<Step>
+Generate a SCIM bearer token.
+
+   The same page lists the SCIM base URL (`https://users.lucid.app/scim/v2`), which the connector uses by default.
+</Step>
+<Step>
+Carefully copy and save the SCIM token.
+</Step>
+</Steps>
 
 ### Self-hosted only: Create an OAuth refresh token
 
@@ -160,6 +184,12 @@ Paste the API key in the **Lucidchart API key** field.
 </Step>
 <Step>
 Paste the client ID and client secret into the relevant fields.
+</Step>
+<Step>
+**Optional.** Paste the SCIM token in the **Lucidchart SCIM Token** field. Leave it empty if you skipped [Create a SCIM token](#create-a-scim-token); account delete and the three account actions are then unavailable.
+</Step>
+<Step>
+**Optional.** To have C1 transfer a deleted user's documents to another user instead of removing them along with the account, enter that user's email address in the **Content Transfer User Email** field.
 </Step>
 <Step>
 **Optional.** By default, the connector syncs Lucidchart documents and folders that are shortcuts. If you prefer not to sync shortcuts (because they don't grant effective permissions or might return 403/404 errors from the API), click to enable **Exclude shortcuts**.
@@ -249,6 +279,14 @@ stringData:
   BATON_LUCID_CLIENT_ID: <Lucidchart OAuth2 client ID>
   BATON_LUCID_CLIENT_SECRET: <Lucidchart OAuth2 client secret>
   BATON_LUCID_REFRESH_TOKEN: <Lucidchart OAuth2 refresh token>
+
+  # Optional: required for account delete and the enable_user, disable_user and
+  # update_user actions. Enterprise-only; everything else works without it.
+  BATON_LUCID_SCIM_TOKEN: <Lucidchart SCIM token>
+
+  # Optional: email address of the user who receives a deleted user's documents,
+  # so the content is retained rather than removed with the account
+  BATON_LUCID_CONTENT_TRANSFER_USER_EMAIL: <email address>
 
   # Optional: include if you want C1 to provision access using this connector
   BATON_PROVISIONING: true
