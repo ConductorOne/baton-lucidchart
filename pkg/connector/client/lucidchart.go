@@ -71,25 +71,55 @@ type LucidchartClient struct {
 	scimBaseURLErr error
 }
 
-func NewLucidchartClient(
-	ctx context.Context,
-	apiKey string,
-	tokenSource oauth2.TokenSource,
-	baseURL, scimToken, scimBaseURL, contentScimToken string,
-) (*LucidchartClient, error) {
+// LucidchartConfig carries everything NewLucidchartClient needs to address and
+// authenticate against Lucid's two surfaces (REST and SCIM).
+//
+// This is a struct rather than a parameter list on purpose. Four of these
+// fields are bare strings, and one of them — ScimBaseURL — sits between two
+// bearer tokens. Passed positionally, transposing the URL with a token compiles
+// cleanly and puts a bearer token on the wire as a base URL; the failure would
+// surface much later as a baffling scim-base-url rejection. Named fields make
+// that mistake impossible to write.
+type LucidchartConfig struct {
+	// APIKey is the Lucid REST API key, used when OAuth2 is not configured.
+	APIKey string
+	// TokenSource supplies OAuth2 bearer tokens for the REST API.
+	TokenSource oauth2.TokenSource
+	// BaseURL overrides the REST API base URL. Defaults to LucidchartApiUrl.
+	BaseURL string
+	// ScimToken is the Enterprise SCIM bearer token for the "SCIM for admin
+	// management" integration. Empty disables SCIM deprovisioning.
+	ScimToken string
+	// ScimBaseURL overrides the SCIM 2.0 base URL shared by both SCIM
+	// integrations. Defaults to LucidScimUrl.
+	ScimBaseURL string
+	// ContentScimToken is the bearer token for the "SCIM for content access"
+	// (teams) integration. Empty skips content-access deprovisioning.
+	ContentScimToken string
+}
+
+func NewLucidchartClient(ctx context.Context, cfg LucidchartConfig) (*LucidchartClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
 	}
 
-	uhttpClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient)
+	// uhttp's GET response cache keys on URL and query plus Accept,
+	// Content-Type, Cookie and Range — not Authorization. Lucid's two SCIM
+	// integrations share one host and one /Users/{id} path and are told apart by
+	// the bearer token alone, so without this a content-access GET would be
+	// served the admin integration's cached response (and vice versa). Fold
+	// Authorization into the key so the two can never cross-serve.
+	uhttpClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient, uhttp.WithCacheKeyHeaders("Authorization"))
 	if err != nil {
 		return nil, err
 	}
 
+	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = string(LucidchartApiUrl)
 	}
+	scimBaseURL := cfg.ScimBaseURL
 
 	// A rejected scim-base-url disables SCIM rather than failing construction.
 	// connector.New turns a constructor error into a dead connector, and sync
@@ -114,11 +144,11 @@ func NewLucidchartClient(
 
 	return &LucidchartClient{
 		client:           uhttpClient,
-		tokenSource:      tokenSource,
-		apiKey:           apiKey,
+		tokenSource:      cfg.TokenSource,
+		apiKey:           cfg.APIKey,
 		baseURL:          baseURL,
-		scimToken:        scimToken,
-		contentScimToken: contentScimToken,
+		scimToken:        cfg.ScimToken,
+		contentScimToken: cfg.ContentScimToken,
 		scimBaseURL:      scimBaseURL,
 		scimBaseURLErr:   scimBaseURLErr,
 	}, nil

@@ -109,7 +109,12 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 
 	for _, s := range cases {
 		t.Run(s.Name, func(t *testing.T) {
-			c, err := NewLucidchartClient(context.Background(), "api-key", ts, "", "scim-test-token", s.ScimBaseURL, "")
+			c, err := NewLucidchartClient(context.Background(), LucidchartConfig{
+				APIKey:      "api-key",
+				TokenSource: ts,
+				ScimToken:   "scim-test-token",
+				ScimBaseURL: s.ScimBaseURL,
+			})
 			// Construction always succeeds: a rejected SCIM URL disables SCIM,
 			// it does not take the connector (and with it sync) down.
 			require.NoError(t, err)

@@ -10,6 +10,8 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // scimContentType is the media type Lucid's SCIM surface documents.
@@ -198,17 +200,25 @@ func (c *LucidchartClient) newScimRequestWithToken(
 // server is entitled to answer a PATCH with. A write that Lucid accepted must
 // not be reported as a failure just because it came back without a body, so an
 // absent or non-JSON body leaves out zero-valued (ScimUser.IsZero) rather than
-// erroring. A body that claims to be JSON and is not still errors — that is a
-// broken response, not an empty one.
+// erroring.
 //
-// That last rule is scoped to the success path deliberately. uhttp runs every
-// DoOption before it inspects the status, then joins whatever they returned
-// into the error it reports for a non-2xx. An error body that advertises JSON
-// but carries some other shape — a bare array, a bare string — is not a SCIM
-// User and was never meant to be, so decoding it there would only staple a
-// spurious decode failure onto the real HTTP status error. Non-2xx responses
-// are therefore left to uhttp's own status handling.
-func scimUserResponse(out *ScimUser) uhttp.DoOption {
+// A success body that claims to be JSON but will not decode into a ScimUser
+// leaves out zero-valued as well, and is logged at Warn rather than returned.
+// The 2xx already says Lucid applied the write; the decoded body is only the
+// confirmation reported alongside it, and reporting is not worth failing a
+// write over. Failing would be actively harmful: SCIM PATCH replace is
+// idempotent, so a platform retry re-applies the same successful write and
+// meets the same undecodable body forever. Warn, not Debug — an undecodable
+// success body means our Go types and Lucid's real responses have diverged,
+// which is worth someone's attention even though nothing failed.
+//
+// Non-2xx responses are left alone deliberately. uhttp runs every DoOption
+// before it inspects the status, then joins whatever they returned into the
+// error it reports for a non-2xx. An error body that advertises JSON but
+// carries some other shape — a bare array, a bare string — is not a SCIM User
+// and was never meant to be, so touching it there would only add noise to the
+// real HTTP status error.
+func scimUserResponse(ctx context.Context, out *ScimUser) uhttp.DoOption {
 	return func(resp *uhttp.WrapperResponse) error {
 		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 			return nil
@@ -220,7 +230,15 @@ func scimUserResponse(out *ScimUser) uhttp.DoOption {
 			return nil
 		}
 		if err := json.Unmarshal(resp.Body, out); err != nil {
-			return fmt.Errorf("failed to decode SCIM user response: %w", err)
+			// Zero out whatever a partial decode left behind, so callers read this
+			// as "unconfirmed" (ScimUser.IsZero) and never as a half-populated
+			// confirmation.
+			*out = ScimUser{}
+			ctxzap.Extract(ctx).Warn(
+				"baton-lucidchart: SCIM response body did not decode into a user; the write succeeded but is unconfirmed",
+				zap.Int("status_code", resp.StatusCode),
+				zap.Error(err),
+			)
 		}
 		return nil
 	}
@@ -249,7 +267,7 @@ func (c *LucidchartClient) SetUserActive(ctx context.Context, userID string, act
 	}
 
 	updated := &ScimUser{}
-	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(updated)); err != nil {
+	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(ctx, updated)); err != nil {
 		return nil, nil, err
 	}
 

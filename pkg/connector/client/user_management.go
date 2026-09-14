@@ -121,7 +121,7 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 	}
 
 	updated := &ScimUser{}
-	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(updated)); err != nil {
+	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(ctx, updated)); err != nil {
 		return nil, nil, err
 	}
 

@@ -19,7 +19,11 @@ func TestUpdateUserHandler_ScimNotConfigured_ReturnsUnimplemented(t *testing.T) 
 	t.Parallel()
 
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
-	lc, err := client.NewLucidchartClient(context.Background(), "api-key", ts, "http://localhost", "", "", "")
+	lc, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{
+		APIKey:      "api-key",
+		TokenSource: ts,
+		BaseURL:     "http://localhost",
+	})
 	require.NoError(t, err)
 
 	c := &Connector{client: lc}

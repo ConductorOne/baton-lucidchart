@@ -22,7 +22,14 @@ func testClient(t *testing.T, restURL, scimURL, scimToken string) *LucidchartCli
 func testClientWithContentToken(t *testing.T, restURL, scimURL, scimToken, contentScimToken string) *LucidchartClient {
 	t.Helper()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: static token literal for tests, not a real credential
-	c, err := NewLucidchartClient(context.Background(), "api-key", ts, restURL, scimToken, scimURL, contentScimToken)
+	c, err := NewLucidchartClient(context.Background(), LucidchartConfig{
+		APIKey:           "api-key",
+		TokenSource:      ts,
+		BaseURL:          restURL,
+		ScimToken:        scimToken,
+		ScimBaseURL:      scimURL,
+		ContentScimToken: contentScimToken,
+	})
 	require.NoError(t, err)
 	return c
 }
@@ -213,6 +220,72 @@ func TestScimErrorResponseDoesNotAddDecodeNoise(t *testing.T) {
 			require.Equal(t, codes.InvalidArgument, status.Code(err))
 		})
 	}
+}
+
+// A 2xx says Lucid applied the write. If the body it came back with will not
+// decode into a ScimUser — our Go types and Lucid's real shapes having diverged
+// — that costs the confirmation, not the write. Failing here would be a
+// permanent false negative: SCIM PATCH replace is idempotent, so every platform
+// retry re-applies the same successful write and meets the same body again.
+func TestScimUndecodableSuccessBodyDoesNotFailTheWrite(t *testing.T) {
+	cases := []struct {
+		Name string
+		Body string
+	}{
+		// Shapes that are not a SCIM User at all.
+		{Name: "json array", Body: `[]`},
+		{Name: "json string", Body: `"nope"`},
+		// Shapes that are a user object, but with fields typed the way a real
+		// server might plausibly differ from our struct.
+		{Name: "active as string", Body: `{"active":"true"}`},
+		{Name: "active as number", Body: `{"active":1}`},
+		{Name: "roles as bare strings", Body: `{"id":"lucid-123","roles":["Developer"]}`},
+		{Name: "numeric id", Body: `{"id":123}`},
+	}
+
+	for _, s := range cases {
+		t.Run(s.Name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(s.Body))
+			}))
+			defer srv.Close()
+
+			c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+			active, _, err := c.SetUserActive(context.Background(), "123", false)
+			require.NoError(t, err, "a 2xx write must not fail on an undecodable body")
+			require.NotNil(t, active)
+			require.True(t, active.IsZero(), "an undecodable body confirms nothing")
+			require.Nil(t, active.GetActive())
+
+			updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{FirstName: "Ada"})
+			require.NoError(t, err)
+			require.NotNil(t, updated)
+			require.True(t, updated.IsZero())
+		})
+	}
+}
+
+// A partial decode must not leave a half-populated confirmation behind: the
+// fields that landed before the type error are not a confirmation of anything.
+func TestScimPartialDecodeLeavesNoConfirmation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// id and userName decode fine; active then fails on the wrong type.
+		_, _ = w.Write([]byte(`{"id":"lucid-123","userName":"ada@example.com","active":"true"}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{Username: "ada@example.com"})
+	require.NoError(t, err)
+	require.True(t, updated.IsZero(), "a partial decode must read as unconfirmed, not as a partial confirmation")
+	require.Empty(t, updated.ID)
+	require.Empty(t, updated.UserName)
 }
 
 // PrimaryEmail falls back to the first address when SCIM marks none primary,
