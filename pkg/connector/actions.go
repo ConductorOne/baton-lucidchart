@@ -126,7 +126,8 @@ var disableUserSchema = &v2.BatonActionSchema{
 			Name:        retActive,
 			DisplayName: "Active",
 			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
-				"body (no body at all, or one the connector could not decode).",
+				"body (no body at all, or one the connector could not decode), or with a body that omitted the active " +
+				"attribute — RFC 7644 lets a SCIM server echo back only a subset of the resource.",
 			Field: &config.Field_BoolField{},
 		},
 	},
@@ -149,7 +150,8 @@ var enableUserSchema = &v2.BatonActionSchema{
 			Name:        retActive,
 			DisplayName: "Active",
 			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
-				"body (no body at all, or one the connector could not decode).",
+				"body (no body at all, or one the connector could not decode), or with a body that omitted the active " +
+				"attribute — RFC 7644 lets a SCIM server echo back only a subset of the resource.",
 			Field: &config.Field_BoolField{},
 		},
 	},

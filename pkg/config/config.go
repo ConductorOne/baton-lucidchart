@@ -2,6 +2,8 @@ package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
+
+	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 )
 
 var (
@@ -95,6 +97,9 @@ var (
 			"FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. "+
 			"Because both SCIM bearer tokens are sent to whatever host this names, it must be an https:// URL; a loopback "+
 			"host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server."),
+		// Same constant the client falls back to when this is empty, so the form
+		// default and the runtime default cannot drift apart.
+		field.WithDefaultValue(string(client.LucidScimUrl)),
 	)
 
 	LucidContentTransferUserEmailField = field.StringField(

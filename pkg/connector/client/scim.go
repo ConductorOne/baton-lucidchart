@@ -197,27 +197,20 @@ func (c *LucidchartClient) newScimRequestWithToken(
 //
 // uhttp.WithResponse cannot be used here: it rejects any response whose
 // Content-Type is neither JSON nor XML, which includes the bodyless 204 a SCIM
-// server is entitled to answer a PATCH with. A write that Lucid accepted must
-// not be reported as a failure just because it came back without a body, so an
-// absent or non-JSON body leaves out zero-valued (ScimUser.IsZero) rather than
-// erroring.
+// server is entitled to answer a PATCH with. An absent or non-JSON body leaves
+// out zero-valued (ScimUser.IsZero) rather than erroring — the 2xx already says
+// Lucid applied the write, and the decoded body is only the confirmation
+// reported alongside it.
 //
-// A success body that claims to be JSON but will not decode into a ScimUser
-// leaves out zero-valued as well, and is logged at Warn rather than returned.
-// The 2xx already says Lucid applied the write; the decoded body is only the
-// confirmation reported alongside it, and reporting is not worth failing a
-// write over. Failing would be actively harmful: SCIM PATCH replace is
-// idempotent, so a platform retry re-applies the same successful write and
-// meets the same undecodable body forever. Warn, not Debug — an undecodable
-// success body means our Go types and Lucid's real responses have diverged,
-// which is worth someone's attention even though nothing failed.
+// A success body that claims to be JSON but will not decode into a ScimUser is
+// treated the same way, and logged at Warn rather than returned: nothing
+// failed, but our Go types and Lucid's real responses have diverged, which is
+// worth someone's attention.
 //
-// Non-2xx responses are left alone deliberately. uhttp runs every DoOption
-// before it inspects the status, then joins whatever they returned into the
-// error it reports for a non-2xx. An error body that advertises JSON but
-// carries some other shape — a bare array, a bare string — is not a SCIM User
-// and was never meant to be, so touching it there would only add noise to the
-// real HTTP status error.
+// Non-2xx responses are left alone. uhttp runs every DoOption before it
+// inspects the status and joins whatever they returned into the error it
+// reports, so decoding an error body here would only add noise to the real HTTP
+// status error.
 func scimUserResponse(ctx context.Context, out *ScimUser) uhttp.DoOption {
 	return func(resp *uhttp.WrapperResponse) error {
 		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {

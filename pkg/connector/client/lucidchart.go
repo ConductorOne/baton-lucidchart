@@ -143,7 +143,7 @@ func NewLucidchartClient(ctx context.Context, cfg LucidchartConfig) (*Lucidchart
 		// retried forever — the same trap the content-access 401/403 branch in
 		// users.go avoids.
 		scimBaseURLErr = status.Error(codes.FailedPrecondition, err.Error())
-		ctxzap.Extract(ctx).Warn(
+		ctxzap.Extract(ctx).Debug(
 			"baton-lucidchart: scim-base-url rejected; SCIM actions and deprovisioning are disabled, sync is unaffected",
 			zap.Error(err),
 		)
@@ -208,7 +208,9 @@ func validateScimBaseURL(scimBaseURL string) error {
 
 // isLoopbackHost reports whether host names the local machine.
 func isLoopbackHost(host string) bool {
-	if host == "localhost" {
+	// net/url does not normalize host case: url.Parse("http://LOCALHOST:8080/x")
+	// hands "LOCALHOST" back verbatim, so this compare has to be case-folded.
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 

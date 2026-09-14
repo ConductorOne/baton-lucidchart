@@ -20,6 +20,13 @@ func IsPermissionDeniedError(err error) bool {
 	return status.Code(err) == codes.PermissionDenied
 }
 
+// IsUnauthenticatedError reports whether err represents an upstream 401 — a
+// bearer token that is wrong, expired, or not entitled to the surface it was
+// sent to.
+func IsUnauthenticatedError(err error) bool {
+	return status.Code(err) == codes.Unauthenticated
+}
+
 // IsConflictError reports whether err represents an upstream 409. SCIM delete
 // uses it for a user that can never be deleted (account owner, default
 // document owner) — terminal, not an idempotent "already done".

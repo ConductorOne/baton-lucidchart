@@ -59,9 +59,9 @@ The `scim-base-url` setting defaults to `https://users.lucid.app/scim/v2`, which
 
 Lucid publishes no fixed FedRAMP SCIM hostname. Unlike the REST API, which simply swaps `api.lucid.co` for `api.lucidgov.app`, the SCIM base URL for a GovSuite account is **generated per account in your own GovSuite admin panel**. Copy it from there and paste it into `scim-base-url`. It applies to both SCIM tokens, since both integrations share the one base URL.
 
-Both SCIM bearer tokens are sent to whatever host `scim-base-url` names, so the connector rejects a value that isn't an absolute `https://` URL — cleartext would put the tokens on the wire in the clear. The hostname itself is not restricted, because a GovSuite hostname is account-specific and Lucid publishes no list to check it against. The one exception to the scheme rule is a loopback host (`localhost` or `127.0.0.1`), which is accepted over plain `http` so the connector can be pointed at a local test server.
+Both SCIM bearer tokens are sent to whatever host `scim-base-url` names, so the connector rejects a value that isn't an absolute `https://` URL — cleartext would put the tokens on the wire in the clear. The hostname itself is not restricted, because a GovSuite hostname is account-specific and Lucid publishes no list to check it against.
 
-A rejected value disables the SCIM surface — actions, deprovisioning and delete — and logs a warning naming the problem. Syncing is unaffected, since it runs against the REST API under `base-url` and never reads this setting. If SCIM operations fail with an error naming `scim-base-url`, correct the value rather than the tokens.
+A rejected value disables the SCIM surface — actions, deprovisioning and delete — and logs the problem at debug level. Syncing is unaffected, since it runs against the REST API under `base-url` and never reads this setting. If SCIM operations fail with an error naming `scim-base-url`, correct the value rather than the tokens.
 
 ## Gather Lucidchart credentials 
 

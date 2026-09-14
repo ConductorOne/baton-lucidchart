@@ -350,7 +350,7 @@ func (o *userBuilder) deleteFromContentAccess(ctx context.Context, userID string
 				"The user is an account owner or a default document owner on the content-access integration; reassign that "+
 				"role in Lucid and retry (%v)",
 			userID, err)
-	case status.Code(err) == codes.Unauthenticated, client.IsPermissionDeniedError(err):
+	case client.IsUnauthenticatedError(err), client.IsPermissionDeniedError(err):
 		// uhttp maps HTTP 401 onto codes.Unauthenticated and 403 onto
 		// codes.PermissionDenied, so both land here as a credential problem on the
 		// content-access integration rather than as something Lucid would answer
