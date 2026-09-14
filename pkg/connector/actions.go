@@ -100,8 +100,9 @@ var updateUserSchema = &v2.BatonActionSchema{
 				"Text is matched ignoring case, and roles count as confirmed when the requested ones are all present, since " +
 				"Lucid may return an effective role set carrying extras. Omitted entirely when Lucid answered without a " +
 				"resource body and so confirmed nothing. Present but empty when Lucid returned a resource body that echoed " +
-				"none of the requested attributes back. When Lucid echoes attributes back and contradicts every one of " +
-				"them, nothing landed and the action fails instead.",
+				"none of the requested attributes back — including when Lucid echoed attributes back and " +
+				"contradicted every one of them, which is logged but does not fail the action, since Lucid's " +
+				"PATCH response is not documented as the authoritative post-update state.",
 			Field: &config.Field_StringField{},
 		},
 	},
