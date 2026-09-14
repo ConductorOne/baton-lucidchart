@@ -317,8 +317,10 @@ func TestUpdateUserHandler_ResponseBodyEchoingNothing_ReportsEmptyConfirmedField
 }
 
 // Lucid echoed the requested attributes back and contradicted every one of
-// them. Nothing landed, so the action must fail rather than report success.
-func TestUpdateUserHandler_ResponseBodyContradictingEverything_ReturnsFailedPrecondition(t *testing.T) {
+// them. Lucid's spec documents the 200 as unconditional success and gives no
+// "applied nothing" case, so the echo is not authoritative enough to fail on:
+// the action succeeds and the empty confirmed_fields carries the disagreement.
+func TestUpdateUserHandler_ResponseBodyContradictingEverything_StillReportsSuccess(t *testing.T) {
 	c := scimActionConnector(t, jsonBody(`{
 		"id": "lucid-7",
 		"userName": "someone.else",
@@ -332,9 +334,12 @@ func TestUpdateUserHandler_ResponseBodyContradictingEverything_ReturnsFailedPrec
 	require.NoError(t, err)
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
-	require.Error(t, err)
-	require.Nil(t, res)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName", fields["updated_fields"])
+	require.Equal(t, "", fields["confirmed_fields"])
 }
 
 // A "replace" on roles that landed can still echo back an effective set that
@@ -372,9 +377,12 @@ func TestUpdateUserHandler_MissingRequestedRoleIsContradiction(t *testing.T) {
 	require.NoError(t, err)
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
-	require.Error(t, err)
-	require.Nil(t, res)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// The contradiction shows up as an unconfirmed roles field, not as a failure.
+	require.Equal(t, "", fields["confirmed_fields"])
 }
 
 // Lucid normalizing the case of an identifier is not a contradiction. Both
@@ -431,9 +439,11 @@ func TestUpdateUserHandler_EmailAbsentFromAllEntriesIsContradiction(t *testing.T
 	require.NoError(t, err)
 
 	res, _, err := c.updateUserHandler(context.Background(), args)
-	require.Error(t, err)
-	require.Nil(t, res)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "", fields["confirmed_fields"])
 }
 
 // An attribute Lucid omitted must never help condemn the update. Here firstName
@@ -527,15 +537,18 @@ func TestSetUserActiveHandlers_ReturnConfirmedActiveState(t *testing.T) {
 }
 
 // Lucid answered without an HTTP error but its body contradicts the requested
-// state. A disable that plainly did not happen must not close out as a success.
-func TestSetUserActiveHandlers_ConfirmedStateContradictsRequest_ReturnsFailedPrecondition(t *testing.T) {
+// state. Lucid's spec documents the 200 as unconditional success and gives no
+// "applied nothing" case, so the echo is not authoritative enough to fail on:
+// the action succeeds and reports the active state Lucid actually named.
+func TestSetUserActiveHandlers_ConfirmedStateContradictsRequest_StillReportsSuccess(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		body    string
-		disable bool
+		name     string
+		body     string
+		disable  bool
+		wantBool bool
 	}{
-		{name: "disable confirmed still active", body: `{"id":"lucid-7","active":true}`, disable: true},
-		{name: "enable confirmed still inactive", body: `{"id":"lucid-7","active":false}`, disable: false},
+		{name: "disable confirmed still active", body: `{"id":"lucid-7","active":true}`, disable: true, wantBool: true},
+		{name: "enable confirmed still inactive", body: `{"id":"lucid-7","active":false}`, disable: false, wantBool: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := scimActionConnector(t, jsonBody(tc.body))
@@ -549,9 +562,12 @@ func TestSetUserActiveHandlers_ConfirmedStateContradictsRequest_ReturnsFailedPre
 			}
 
 			res, _, err := handler(context.Background(), args)
-			require.Error(t, err)
-			require.Nil(t, res)
-			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.NoError(t, err)
+
+			fields := res.AsMap()
+			require.Equal(t, true, fields["success"])
+			// The state Lucid named, not the one that was requested.
+			require.Equal(t, tc.wantBool, fields["active"])
 		})
 	}
 }

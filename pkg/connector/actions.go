@@ -13,6 +13,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -235,24 +237,34 @@ func (c *Connector) updateUserHandler(
 	fields := []actions.ReturnField{
 		actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")),
 	}
-	// Lucid's PATCH response is the authoritative post-update state; report which
-	// of the requested changes it actually echoed back, rather than implying all
-	// of updated_fields landed. Omitted entirely when Lucid answered without a
-	// resource body, so an empty confirmed_fields only ever means "Lucid told us
-	// the post-update state and echoed none of the requested attributes back" and
-	// never "Lucid stayed silent".
+	// Report which of the requested changes Lucid's PATCH response echoed back,
+	// rather than implying all of updated_fields landed. This is reporting, not
+	// adjudication: the echo is the best signal we have about the post-update
+	// state, but it is not documented as authoritative, so it never fails the
+	// action. Omitted entirely when Lucid answered without a resource body, so an
+	// empty confirmed_fields only ever means "Lucid told us the post-update state
+	// and echoed none of the requested attributes back" and never "Lucid stayed
+	// silent".
 	if !confirmed.IsZero() {
 		matched := confirmedFields(payload, confirmed)
-		// Every requested field came back disagreeing: nothing landed, so success
-		// would be a lie. The test is against all of updated_fields, not just the
-		// ones Lucid spoke about, because an omitted attribute carries no
-		// information — SCIM permits returning a subset of the resource — and must
-		// not help condemn the update. Anything less than unanimous disagreement is
-		// a partial application, which confirmed_fields already reports precisely.
+		// Every requested field came back disagreeing. That is logged and nothing
+		// more: failing here would rest on the unverified assumption that Lucid's
+		// PATCH response is always the authoritative, immediate post-update state,
+		// and Lucid's published spec documents 200 as unconditional success with no
+		// "applied nothing" case, so a wholesale contradiction inside a 200 is an
+		// undocumented vendor edge case the caller cannot act on. Debug, not Warn,
+		// for exactly that reason. The 2xx is what we report on, and confirmed_fields
+		// still comes back empty, which says the same thing to whoever reads it.
+		//
+		// The test is against all of updated_fields, not just the ones Lucid spoke
+		// about, because an omitted attribute carries no information — SCIM permits
+		// returning a subset of the resource — and must not count against the update.
 		if contradicted := contradictedFields(payload, confirmed); len(contradicted) == len(updated) {
-			return nil, nil, status.Errorf(codes.FailedPrecondition,
-				"baton-lucidchart: update_user %s: Lucid's post-update user contradicts the requested value for every "+
-					"field (%s); the update did not take effect", userID, strings.Join(contradicted, ", "))
+			ctxzap.Extract(ctx).Debug("baton-lucidchart: Lucid's post-update user contradicts the requested value for every field",
+				zap.String("action", actionUpdateUser),
+				zap.String("user_id", userID),
+				zap.Strings("contradicted_fields", contradicted),
+			)
 		}
 		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(matched, ", ")))
 	}
@@ -428,13 +440,21 @@ func (c *Connector) setUserActive(
 	// field reads as "unconfirmed" and never as "confirmed false".
 	fields := []actions.ReturnField{}
 	if got := confirmed.GetActive(); got != nil {
-		// Lucid answered without an HTTP error but its post-update body contradicts
-		// what was asked for. Returning success here would report a disable that
-		// plainly did not happen as a completed one.
+		// A body that disagrees with what was asked for is logged and nothing more.
+		// Failing here would rest on the unverified assumption that Lucid's PATCH
+		// response is always the authoritative, immediate post-update state; Lucid's
+		// published spec documents 200 as unconditional success with no "applied
+		// nothing" case, so a contradiction inside a 200 is an undocumented vendor
+		// edge case the caller cannot act on. Debug, not Warn, for exactly that
+		// reason. The 2xx is what we report on, and retActive still carries the state
+		// Lucid actually named, so the disagreement stays visible to whoever reads it.
 		if *got != active {
-			return nil, annos, status.Errorf(codes.FailedPrecondition,
-				"baton-lucidchart: %s %s: Lucid confirmed active=%t after a request to set active=%t; the change did not take effect",
-				op, userID, *got, active)
+			ctxzap.Extract(ctx).Debug("baton-lucidchart: Lucid's post-update user contradicts the requested active state",
+				zap.String("action", op),
+				zap.String("user_id", userID),
+				zap.Bool("requested_active", active),
+				zap.Bool("confirmed_active", *got),
+			)
 		}
 		fields = append(fields, actions.NewBoolReturnField(retActive, *got))
 	}
