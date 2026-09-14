@@ -49,11 +49,8 @@ func TestExtractPageToken(t *testing.T) {
 // deliberately does not fail construction, which would take sync down with it.
 func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 	cases := []struct {
-		Name        string
-		ScimBaseURL string
-		// ExpectedErrorNames are substrings the rejection message must carry, on
-		// top of the value and the flag name every rejection names.
-		ExpectedErrorNames  []string
+		Name                string
+		ScimBaseURL         string
 		ExpectedError       bool
 		ExpectedScimBaseURL string
 	}{
@@ -74,26 +71,12 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 			ExpectedScimBaseURL: "https://users.lucid.app/scim/v2",
 		},
 		{
-			// FedRAMP/GovSuite tenants get an account-specific hostname, so the
-			// check has to allow arbitrary labels under the Lucid domain.
-			Name:                "a FedRAMP host under lucidgov.app is accepted",
-			ScimBaseURL:         "https://scim.acme-gov.lucidgov.app/scim/v2",
-			ExpectedScimBaseURL: "https://scim.acme-gov.lucidgov.app/scim/v2",
-		},
-		{
-			// https proves only that nobody is reading in transit, not who is
-			// answering — and both Enterprise SCIM tokens go wherever this points.
-			Name:               "an unrelated https host is rejected",
-			ScimBaseURL:        "https://scim.example.com/scim/v2",
-			ExpectedError:      true,
-			ExpectedErrorNames: []string{"lucid.app", "lucidgov.app", "lucid.co"},
-		},
-		{
-			// A substring match would accept this; the domain check is anchored
-			// on a label boundary precisely so that it does not.
-			Name:          "a lookalike host that merely contains a Lucid domain is rejected",
-			ScimBaseURL:   "https://evil-lucid.app.attacker.com/scim/v2",
-			ExpectedError: true,
+			// FedRAMP/GovSuite tenants get an account-specific hostname that Lucid
+			// generates and never publishes, so the host is not constrained at all:
+			// any allowlist would be a guess that rejects some real tenant's URL.
+			Name:                "an arbitrary https host is accepted",
+			ScimBaseURL:         "https://scim.acme-gov.example.com/scim/v2",
+			ExpectedScimBaseURL: "https://scim.acme-gov.example.com/scim/v2",
 		},
 		{
 			// Cleartext would put the Enterprise SCIM bearer token on the wire.
@@ -137,12 +120,6 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 				// The message must name both the offending value and the flag.
 				require.Contains(t, c.scimBaseURLErr.Error(), s.ScimBaseURL)
 				require.Contains(t, c.scimBaseURLErr.Error(), "scim-base-url")
-
-				// A rejected host is only actionable if the message says which
-				// domains would have been accepted.
-				for _, name := range s.ExpectedErrorNames {
-					require.Contains(t, c.scimBaseURLErr.Error(), name)
-				}
 
 				// No SCIM request may be built while the URL is rejected — that is
 				// what keeps the bearer token away from the host it named.

@@ -360,7 +360,7 @@ func (o *userBuilder) deleteFromContentAccess(ctx context.Context, userID string
 		return status.Errorf(codes.FailedPrecondition,
 			"baton-lucidchart: delete user %s: PARTIAL DEPROVISIONING — the user was removed from the SCIM admin-management "+
 				"integration but Lucid rejected the content-access delete as unauthorized, so they may still hold team content "+
-				"access. The lucid-content-scim-token is wrong or expired, or SCIM for content access is not enabled on the "+
+				"access. The lucid-content-access-scim-token is wrong or expired, or SCIM for content access is not enabled on the "+
 				"Lucid account; retrying cannot help until that configuration is corrected (%v)",
 			userID, err)
 	default:

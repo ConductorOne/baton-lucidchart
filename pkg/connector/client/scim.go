@@ -137,7 +137,7 @@ var errScimNotConfigured = errors.New("SCIM is not configured: a SCIM bearer tok
 
 // errContentScimNotConfigured is returned when a content-access SCIM operation
 // is attempted without the second (content-access) bearer token.
-var errContentScimNotConfigured = errors.New("SCIM for content access is not configured: the lucid-content-scim-token bearer token is required for content-access deprovisioning")
+var errContentScimNotConfigured = errors.New("SCIM for content access is not configured: the lucid-content-access-scim-token bearer token is required for content-access deprovisioning")
 
 // newScimRequest builds a request against the SCIM base URL using the
 // admin-management SCIM bearer token and the content negotiation Lucid's SCIM

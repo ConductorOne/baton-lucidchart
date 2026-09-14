@@ -139,7 +139,7 @@
       "stringField": {}
     },
     {
-      "name": "lucid-content-scim-token",
+      "name": "lucid-content-access-scim-token",
       "displayName": "Lucidchart Content Access SCIM Token",
       "description": "The SCIM 2.0 bearer token for Lucid's \"SCIM for content access\" integration, which syncs to teams. This is a second, separate token from lucid-scim-token (the \"SCIM for admin management\" integration, which syncs to organizational groups); both integrations share the same SCIM base URL and are distinguished only by the token. Optional: when set, deleting a user also deprovisions them from the content-access integration.",
       "isSecret": true,
@@ -148,7 +148,7 @@
     {
       "name": "scim-base-url",
       "displayName": "Lucidchart SCIM Base URL",
-      "description": "The Lucid SCIM 2.0 base URL. Leave empty to use Lucid's standard URL, https://users.lucid.app/scim/v2, which is correct for all commercial accounts. FedRAMP/GovSuite tenants must set this to the account-specific SCIM base URL generated in their GovSuite admin panel — Lucid publishes no fixed FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. Because both SCIM bearer tokens are sent to whatever host this names, it is restricted to https:// on a Lucid-owned domain (lucid.app, lucidgov.app, lucid.co, or a subdomain of one); a loopback host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server.",
+      "description": "The Lucid SCIM 2.0 base URL. Leave empty to use Lucid's standard URL, https://users.lucid.app/scim/v2, which is correct for all commercial accounts. FedRAMP/GovSuite tenants must set this to the account-specific SCIM base URL generated in their GovSuite admin panel — Lucid publishes no fixed FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. Because both SCIM bearer tokens are sent to whatever host this names, it must be an https:// URL; a loopback host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server.",
       "stringField": {}
     },
     {

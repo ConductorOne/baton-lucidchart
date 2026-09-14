@@ -141,12 +141,10 @@ func NewLucidchartClient(
 // request is built at all while it is set; what changes is that a wrong SCIM URL
 // can no longer take down a sync that never reads it.
 //
-// https alone is not enough either. The scheme only proves nobody is reading the
-// tokens in transit; it says nothing about who is on the other end. Both
-// Enterprise SCIM bearer tokens are sent wherever this points, so a misspelled
-// host — or one pasted from the wrong place — would hand them to a third party
-// over a perfectly valid TLS connection. Requiring a Lucid-owned domain keeps
-// that mistake a startup error instead of a silent credential leak.
+// The host itself is deliberately not constrained. Lucid generates a GovSuite
+// tenant's SCIM hostname per account and publishes no list of them, so any
+// allowlist would be a guess — and a guess that is wrong for one real customer
+// rejects the exact FedRAMP URL this field exists to accept.
 func validateScimBaseURL(scimBaseURL string) error {
 	parsed, err := url.Parse(scimBaseURL)
 	if err != nil {
@@ -168,38 +166,7 @@ func validateScimBaseURL(scimBaseURL string) error {
 		)
 	}
 
-	if !isLucidHost(parsed.Hostname()) {
-		return fmt.Errorf(
-			"baton-lucidchart: scim-base-url must point at a Lucid-owned domain (%s, or a subdomain of one, for example %s), got host %q from %q",
-			strings.Join(lucidScimDomains, ", "),
-			LucidScimUrl,
-			parsed.Hostname(),
-			scimBaseURL,
-		)
-	}
-
 	return nil
-}
-
-// lucidScimDomains are the registrable domains Lucid serves SCIM from:
-// lucid.app for commercial tenants, lucidgov.app for FedRAMP/GovSuite, and
-// lucid.co alongside the REST API.
-var lucidScimDomains = []string{"lucid.app", "lucidgov.app", "lucid.co"}
-
-// isLucidHost reports whether host is one of lucidScimDomains or a subdomain of
-// one. The match is anchored on a label boundary rather than a bare substring,
-// so "evil-lucid.app.attacker.com" and "notlucid.app" are both rejected.
-func isLucidHost(host string) bool {
-	// A trailing dot is a legal fully-qualified form and names the same host.
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-
-	for _, domain := range lucidScimDomains {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // isLoopbackHost reports whether host names the local machine.

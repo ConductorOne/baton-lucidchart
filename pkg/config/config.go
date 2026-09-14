@@ -62,12 +62,12 @@ var (
 		field.WithIsSecret(true),
 	)
 
-	// LucidContentScimTokenField is the bearer token for Lucid's *second* SCIM
+	// LucidContentAccessScimTokenField is the bearer token for Lucid's *second* SCIM
 	// integration. Lucid ships two: "SCIM for admin management" (organizational
 	// groups) and "SCIM for content access" (teams). Both are served from the
 	// same base URL — the token alone selects which integration a call hits.
-	LucidContentScimTokenField = field.StringField(
-		"lucid-content-scim-token",
+	LucidContentAccessScimTokenField = field.StringField(
+		"lucid-content-access-scim-token",
 		field.WithDisplayName("Lucidchart Content Access SCIM Token"),
 		field.WithDescription("The SCIM 2.0 bearer token for Lucid's \"SCIM for content access\" integration, which syncs to teams. "+
 			"This is a second, separate token from lucid-scim-token (the \"SCIM for admin management\" integration, which syncs to "+
@@ -93,9 +93,8 @@ var (
 			"https://users.lucid.app/scim/v2, which is correct for all commercial accounts. FedRAMP/GovSuite tenants must set "+
 			"this to the account-specific SCIM base URL generated in their GovSuite admin panel — Lucid publishes no fixed "+
 			"FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. "+
-			"Because both SCIM bearer tokens are sent to whatever host this names, it is restricted to https:// on a "+
-			"Lucid-owned domain (lucid.app, lucidgov.app, lucid.co, or a subdomain of one); a loopback host such as "+
-			"http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server."),
+			"Because both SCIM bearer tokens are sent to whatever host this names, it must be an https:// URL; a loopback "+
+			"host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server."),
 	)
 
 	LucidContentTransferUserEmailField = field.StringField(
@@ -116,7 +115,7 @@ var (
 		ExcludeShortcutsField,
 		BaseURLField,
 		LucidScimTokenField,
-		LucidContentScimTokenField,
+		LucidContentAccessScimTokenField,
 		ScimBaseURLField,
 		LucidContentTransferUserEmailField,
 	}

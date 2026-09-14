@@ -86,7 +86,7 @@ While developing the connector, please fill out this form. This information is n
         • "SCIM for admin management" — syncs to organizational groups. This is the
           lucid-scim-token setting, and it is what gates user delete and the
           enable_user / disable_user / update_user actions.
-        • "SCIM for content access" — syncs to teams. This is the lucid-content-scim-token
+        • "SCIM for content access" — syncs to teams. This is the lucid-content-access-scim-token
           setting. It is optional and additive: when configured, deleting a user also
           deprovisions them from this integration.
     Both are Enterprise-tier features; generate each token in the Lucid admin panel under the
@@ -112,7 +112,7 @@ While developing the connector, please fill out this form. This information is n
 
     SCIM 2.0 bearer token, described under "Connector credentials" above. Enables account delete and the `enable_user` / `disable_user` / `update_user` actions. Enterprise-only. Without it those operations return `Unimplemented`; everything else works.
 
-* `--lucid-content-scim-token` (string, secret, no default)
+* `--lucid-content-access-scim-token` (string, secret, no default)
 
     The bearer token for Lucid's second SCIM integration, **"SCIM for content access"**, which syncs to teams. It is separate from `--lucid-scim-token` (the "SCIM for admin management" integration, which syncs to organizational groups); both integrations share the same base URL and are told apart only by the token.
 

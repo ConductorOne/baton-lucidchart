@@ -96,7 +96,9 @@ func TestDelete_RejectedScimBaseURL_TransfersNothingAndIsTerminal(t *testing.T) 
 	defer srv.Close()
 
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
-	c, err := client.NewLucidchartClient(context.Background(), "api-key", ts, srv.URL, "scim-test-token", "https://scim.example.com/scim/v2", "")
+	// Cleartext on a non-loopback host: the one shape validateScimBaseURL still
+	// rejects, since it would put the SCIM bearer token on the wire in the clear.
+	c, err := client.NewLucidchartClient(context.Background(), "api-key", ts, srv.URL, "scim-test-token", "http://scim.example.com/scim/v2", "")
 	require.NoError(t, err, "a rejected SCIM URL must not fail construction")
 
 	b := newUserBuilder(c, "recipient@example.com")
@@ -550,7 +552,7 @@ func TestDelete_ContentScimToken_ContentAuthFailureIsTerminal(t *testing.T) {
 			require.True(t, ok, "error must be a gRPC status error")
 			require.Equal(t, codes.FailedPrecondition, st.Code())
 			require.Contains(t, err.Error(), "PARTIAL DEPROVISIONING")
-			require.Contains(t, err.Error(), "lucid-content-scim-token")
+			require.Contains(t, err.Error(), "lucid-content-access-scim-token")
 			require.NotContains(t, err.Error(), "retry the delete or remove them from content access",
 				"must not fall through to the generic retryable-looking message")
 			require.Equal(t, 1, routes.adminDeletes, "the admin-management delete must still have been attempted")
