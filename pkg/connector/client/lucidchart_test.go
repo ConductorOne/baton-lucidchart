@@ -109,7 +109,7 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 
 	for _, s := range cases {
 		t.Run(s.Name, func(t *testing.T) {
-			c, err := NewLucidchartClient(context.Background(), LucidchartConfig{
+			c, err := NewLucidchartClient(context.Background(), LucidchartConfig{ //nolint:gosec // G101: static token literal for tests, not a real credential
 				APIKey:      "api-key",
 				TokenSource: ts,
 				ScimToken:   "scim-test-token",

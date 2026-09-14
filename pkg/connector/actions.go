@@ -99,7 +99,8 @@ var updateUserSchema = &v2.BatonActionSchema{
 			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
 				"Text is matched ignoring case, and roles count as confirmed when the requested ones are all present, since " +
 				"Lucid may return an effective role set carrying extras. Omitted entirely when Lucid answered without a " +
-				"resource body and so confirmed nothing. Present but empty when Lucid returned a resource body that echoed " +
+				"usable resource body — either no body at all, or one the connector could not decode — and so confirmed " +
+				"nothing. Present but empty when Lucid returned a resource body that echoed " +
 				"none of the requested attributes back — including when Lucid echoed attributes back and " +
 				"contradicted every one of them, which is logged but does not fail the action, since Lucid's " +
 				"PATCH response is not documented as the authoritative post-update state.",
@@ -124,8 +125,9 @@ var disableUserSchema = &v2.BatonActionSchema{
 		{
 			Name:        retActive,
 			DisplayName: "Active",
-			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a resource body.",
-			Field:       &config.Field_BoolField{},
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
+				"body (no body at all, or one the connector could not decode).",
+			Field: &config.Field_BoolField{},
 		},
 	},
 	ActionType: []v2.ActionType{
@@ -146,8 +148,9 @@ var enableUserSchema = &v2.BatonActionSchema{
 		{
 			Name:        retActive,
 			DisplayName: "Active",
-			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a resource body.",
-			Field:       &config.Field_BoolField{},
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
+				"body (no body at all, or one the connector could not decode).",
+			Field: &config.Field_BoolField{},
 		},
 	},
 	ActionType: []v2.ActionType{

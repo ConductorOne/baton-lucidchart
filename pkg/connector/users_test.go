@@ -22,8 +22,8 @@ func testLucidClient(t *testing.T, restURL, scimURL string) *client.LucidchartCl
 
 func testLucidClientWithContentToken(t *testing.T, restURL, scimURL, contentScimToken string) *client.LucidchartClient {
 	t.Helper()
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
-	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"})      //nolint:gosec // G101: test token literal
+	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{ //nolint:gosec // G101: static token literal for tests, not a real credential
 		APIKey:           "api-key",
 		TokenSource:      ts,
 		BaseURL:          restURL,
@@ -105,7 +105,7 @@ func TestDelete_RejectedScimBaseURL_TransfersNothingAndIsTerminal(t *testing.T) 
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
 	// Cleartext on a non-loopback host: the one shape validateScimBaseURL still
 	// rejects, since it would put the SCIM bearer token on the wire in the clear.
-	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{
+	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{ //nolint:gosec // G101: static token literal for tests, not a real credential
 		APIKey:      "api-key",
 		TokenSource: ts,
 		BaseURL:     srv.URL,

@@ -107,10 +107,17 @@ func NewLucidchartClient(ctx context.Context, cfg LucidchartConfig) (*Lucidchart
 	// uhttp's GET response cache keys on URL and query plus Accept,
 	// Content-Type, Cookie and Range — not Authorization. Lucid's two SCIM
 	// integrations share one host and one /Users/{id} path and are told apart by
-	// the bearer token alone, so without this a content-access GET would be
-	// served the admin integration's cached response (and vice versa). Fold
-	// Authorization into the key so the two can never cross-serve.
-	uhttpClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient, uhttp.WithCacheKeyHeaders("Authorization"))
+	// the bearer token alone, so a content-access GET could in principle be
+	// served the admin integration's cached response (and vice versa).
+	// WithCacheKeyHeaders("Authorization") was tried here and reverted: this
+	// client is shared with the REST API, so it would also fold the rotating
+	// REST OAuth bearer into every REST GET's key and throw away that cache on
+	// each token rotation — a real cost today, for a collision that is not
+	// reachable today. The only SCIM GET is ScimUserExists, which always uses
+	// the admin c.scimToken; the content-access integration issues DELETEs
+	// only, which uhttp does not cache. Revisit this if a content-access GET is
+	// ever added — and scope it to a SCIM-only client, not this shared one.
+	uhttpClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient)
 	if err != nil {
 		return nil, err
 	}
