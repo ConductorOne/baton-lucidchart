@@ -206,6 +206,27 @@ func TestFolderGrantIdempotency(t *testing.T) {
 		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
 		require.Equal(t, int64(1), cts.putCallCount())
 	})
+
+	// The same conflict, but with a 409 body nothing can decode: response.Role is
+	// empty, so the "absent role is idempotent" half of the guard would fire on its
+	// own. It must not, because the pre-check already read a record naming a
+	// *different* role — that read outranks the silent 409. This is the case the
+	// current == nil conjunct exists for; without it the connector would report
+	// GrantAlreadyExists for a role the GET just proved the user does not hold.
+	t.Run("upsert 409 with no record after a pre-check found a different role returns the error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "folders")
+		cts.roles["100"] = "view" // upstream role, different from the one granted
+		cts.putStatus = http.StatusConflict
+		// putErrorReturnsRecord stays 0: a bare error envelope, so response.Role == "".
+		b := &folderBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("100"), objectEntitlement(folderResourceType.Id, "9001", "edit"))
+		require.Error(t, err, "a successful pre-check naming a different role outranks an undecodable 409")
+		require.Nil(t, grants, "no grant may be emitted for a role the pre-check proved absent")
+		require.Nil(t, annos)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
 }
 
 // CXH-1919 regression: the upsert-success path used to pass the user principal
