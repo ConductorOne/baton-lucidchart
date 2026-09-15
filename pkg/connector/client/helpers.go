@@ -27,9 +27,13 @@ func IsUnauthenticatedError(err error) bool {
 	return status.Code(err) == codes.Unauthenticated
 }
 
-// IsConflictError reports whether err represents an upstream 409. SCIM delete
-// uses it for a user that can never be deleted (account owner, default
-// document owner) — terminal, not an idempotent "already done".
+// IsConflictError reports whether err represents an upstream 409. What a 409
+// means is call-site specific: SCIM delete treats it as terminal (a user that
+// can never be deleted — account owner, default document owner); folder/document
+// Grant() treats it as an idempotent "already granted" no-op only when the
+// conflicting record's role matches what was requested (or the record carries no
+// role), and surfaces the error otherwise. The classifier only reports the
+// status; the caller decides.
 func IsConflictError(err error) bool {
 	return status.Code(err) == codes.AlreadyExists
 }

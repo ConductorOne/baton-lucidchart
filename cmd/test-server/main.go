@@ -38,6 +38,11 @@
 //   - The SCIM Content-Type, PatchOp `schemas` URN, and PATCH operation paths
 //     accept both the RFC 7644 form and the form Lucid's spec documents, logging
 //     a DIVERGENCE for the RFC form. Use -strict-scim-doc to reject it instead.
+//   - The single-collaborator GETs (/folders|documents/{id}/shares/users/{uid})
+//     are direct-only: a user who reaches the container only through an ancestor
+//     404s there. Published for folders (reference/getfolderusercollaborators);
+//     for documents it is the one behaviour here taken from observation rather
+//     than documentation, verified live under CXH-2285.
 //   - Errors use Lucid's envelope {code, message, requestId} (reference-rest).
 //   - GET /users paginates via an opaque pageToken carried in the Link header,
 //     200 records per page (reference-rest).
@@ -91,6 +96,18 @@ const (
 	// maxOAuthFormBytes bounds the /oauth2/token request body read by ParseForm,
 	// which otherwise buffers the whole body in memory regardless of size.
 	maxOAuthFormBytes = 1 << 20
+
+	// The collaborator fixture: document seedDocumentID lives inside folder
+	// seedFolderID. Folder IDs are numeric in Lucid's model (folderId is a number
+	// in the collaborator record) while document IDs are opaque strings.
+	seedFolderID     = "9001"
+	seedDocumentID   = "doc-200"
+	seedShareCreated = "2024-01-01T00:00:00Z"
+
+	// seedDirectDocUser holds a DIRECT share on the document; seedInheritedUser
+	// is shared only on the parent folder, so its document access is inherited.
+	seedDirectDocUser = 102
+	seedInheritedUser = 103
 )
 
 // config carries the scenario switches. Defaults are the documented behaviour;
@@ -172,10 +189,30 @@ type lucidError struct {
 	RequestId string `json:"requestId"`
 }
 
+// share is one DIRECT collaborator record on a folder or a document. The two
+// endpoints wrap it in slightly different envelopes (folderId vs documentId), so
+// the handlers assemble the body rather than marshalling this type directly.
+type share struct {
+	userID  int
+	role    string
+	created string
+}
+
 type store struct {
 	mu     sync.Mutex
 	users  []user
 	nextID int
+
+	// folderShares and documentShares hold only DIRECT shares, keyed by container
+	// ID then user ID. Access a user has by inheritance is deliberately absent
+	// from documentShares: that is what makes the direct-only contract testable
+	// (see the single-collaborator routes in newMux).
+	folderShares   map[string]map[int]share
+	documentShares map[string]map[int]share
+	// documentParents records which folder contains a document, so the fixture
+	// can express "this user's document access is inherited from that folder"
+	// without the mock having to model a whole folder tree.
+	documentParents map[string]string
 }
 
 var requestCounter atomic.Int64
@@ -197,7 +234,57 @@ func newStore() *store {
 			{AccountId: 1, Email: "disabled@example.com", Name: "Dana Disabled", UserId: 105, Username: "disabled@example.com", Enabled: false, Roles: []string{"developer"}},
 		},
 		nextID: 1000,
+
+		// Eddie (102) is shared directly on the document. Nora (103) is shared on
+		// the parent folder only, so she can open the document but holds no direct
+		// share on it — the inherited-access case the direct-only contract is about.
+		folderShares: map[string]map[int]share{
+			seedFolderID: {
+				seedInheritedUser: {userID: seedInheritedUser, role: "edit", created: seedShareCreated},
+			},
+		},
+		documentShares: map[string]map[int]share{
+			seedDocumentID: {
+				seedDirectDocUser: {userID: seedDirectDocUser, role: "view", created: seedShareCreated},
+			},
+		},
+		documentParents: map[string]string{seedDocumentID: seedFolderID},
 	}
+}
+
+// folderShare returns the user's DIRECT share on a folder. containerKnown is
+// false when the folder itself is not in the fixture.
+func (s *store) folderShare(folderID string, userID int) (share, bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	shares, containerKnown := s.folderShares[folderID]
+	if !containerKnown {
+		return share{}, false, false
+	}
+	sh, found := shares[userID]
+	return sh, found, true
+}
+
+// documentParent returns the folder that contains a document, which is where a
+// document collaborator's access comes from when they hold no direct share.
+func (s *store) documentParent(documentID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	parent, ok := s.documentParents[documentID]
+	return parent, ok
+}
+
+// documentShare returns the user's DIRECT share on a document. A user whose only
+// access is inherited from the parent folder is not found here — by design.
+func (s *store) documentShare(documentID string, userID int) (share, bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	shares, containerKnown := s.documentShares[documentID]
+	if !containerKnown {
+		return share{}, false, false
+	}
+	sh, found := shares[userID]
+	return sh, found, true
 }
 
 // seedUsers replaces the user set with exactly n generated users. Used by
@@ -454,6 +541,8 @@ func newMux(s *store, cfg config) *http.ServeMux {
 		fresh := newStore()
 		s.mu.Lock()
 		s.users, s.nextID = fresh.users, fresh.nextID
+		s.folderShares, s.documentShares = fresh.folderShares, fresh.documentShares
+		s.documentParents = fresh.documentParents
 		s.mu.Unlock()
 		log.Printf("[_test] store reset to seed fixtures")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
@@ -698,6 +787,92 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	}
 	mux.HandleFunc("GET /folders/root/contents", emptyContents)
 	mux.HandleFunc("GET /folders/{id}/contents", emptyContents)
+
+	// The single-collaborator GETs the Grant pre-check uses. Both are DIRECT-ONLY:
+	// a user who can reach the container only through an ancestor is not reported
+	// here, and the endpoint 404s for them.
+	//
+	// For folders this is published:
+	//   "A user having access to a folder through one of the folder's ancestors
+	//    will not be shown through this API" (reference/getfolderusercollaborators).
+	//
+	// For documents Lucid publishes no such sentence. The behaviour was verified
+	// empirically against a live tenant under CXH-2285 — a user shared only on the
+	// parent folder stays 404 here — and is modelled below so the connector's
+	// Grant short-circuit is tested against the contract it actually relies on,
+	// rather than against nothing. This is the one place this mock encodes
+	// observed rather than documented behaviour; if Lucid ever starts reporting
+	// inherited access here, these routes are where that shows up as a failure.
+	parseCollaboratorUser := func(w http.ResponseWriter, r *http.Request) (int, bool) {
+		uid, err := strconv.Atoi(r.PathValue("uid"))
+		if err != nil {
+			writeLucidError(w, http.StatusBadRequest, "badRequest", "user id must be numeric")
+			return 0, false
+		}
+		return uid, true
+	}
+
+	// GET /folders/{id}/shares/users/{uid} — reference/getfolderusercollaborators
+	mux.HandleFunc("GET /folders/{id}/shares/users/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireRest(w, r) {
+			return
+		}
+		uid, ok := parseCollaboratorUser(w, r)
+		if !ok {
+			return
+		}
+		folderID := r.PathValue("id")
+		sh, found, containerKnown := s.folderShare(folderID, uid)
+		if !containerKnown {
+			writeLucidError(w, http.StatusNotFound, "itemNotFound", "no such folder")
+			return
+		}
+		if !found {
+			writeLucidError(w, http.StatusNotFound, "itemNotFound", "user is not a direct collaborator on this folder")
+			return
+		}
+		// folderId is a number in Lucid's folder collaborator record.
+		folderIDNum, err := strconv.Atoi(folderID)
+		if err != nil {
+			writeLucidError(w, http.StatusNotFound, "itemNotFound", "no such folder")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"folderId": folderIDNum,
+			"userId":   sh.userID,
+			"role":     sh.role,
+			"created":  sh.created,
+		})
+	})
+
+	// GET /documents/{id}/shares/users/{uid} — reference/getdocumentusercollaborator
+	mux.HandleFunc("GET /documents/{id}/shares/users/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireRest(w, r) {
+			return
+		}
+		uid, ok := parseCollaboratorUser(w, r)
+		if !ok {
+			return
+		}
+		documentID := r.PathValue("id")
+		sh, found, containerKnown := s.documentShare(documentID, uid)
+		if !containerKnown {
+			writeLucidError(w, http.StatusNotFound, "itemNotFound", "no such document")
+			return
+		}
+		if !found {
+			// Deliberately 404 even when the user reaches this document through the
+			// parent folder: inherited access is not a collaborator record.
+			writeLucidError(w, http.StatusNotFound, "itemNotFound", "user is not a direct collaborator on this document")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"documentId": documentID,
+			"userId":     sh.userID,
+			"role":       sh.role,
+			"created":    sh.created,
+		})
+	})
 
 	// GET /scim/v2/Users — https://lucid.readme.io/reference/getallusers
 	// Lucid documents that "Deactivated users will not be

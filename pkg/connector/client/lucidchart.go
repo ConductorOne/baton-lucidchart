@@ -236,12 +236,18 @@ func (c *LucidchartClient) ContentScimConfigured() bool {
 	return c.contentScimToken != ""
 }
 
+// newRequest builds a request with the auth, versioning and Accept headers every
+// Lucid call needs. extraOptions are appended last, so a caller can layer on an
+// SDK-provided uhttp.RequestOption (uhttp.WithNoCache, for instance) instead of
+// reaching into req.Header afterwards. Existing call sites pass none and are
+// unaffected.
 func (c *LucidchartClient) newRequest(
 	ctx context.Context,
 	method string,
 	path string,
 	body interface{},
 	authType LucidAuthType,
+	extraOptions ...uhttp.RequestOption,
 ) (*http.Request, error) {
 	urlAddress, err := url.Parse(c.baseURL)
 	if err != nil {
@@ -272,6 +278,8 @@ func (c *LucidchartClient) newRequest(
 	if body != nil {
 		options = append(options, uhttp.WithJSONBody(body))
 	}
+
+	options = append(options, extraOptions...)
 
 	req, err := c.client.NewRequest(
 		ctx,

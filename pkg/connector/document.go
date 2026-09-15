@@ -142,6 +142,7 @@ func (o *documentBuilder) Grants(ctx context.Context, resource *v2.Resource, opt
 }
 
 func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	if resource.Id.ResourceType == userResourceType.Id {
 		userId := resource.Id.Resource
 		documentId := entitlement.Resource.Id.Resource
@@ -153,8 +154,66 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 
 		role := splitted[1]
 
+		// Pre-check the current role so a no-op re-grant reports GrantAlreadyExists.
+		// Best-effort: any read error falls through to the authoritative upsert.
+		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
+		if err != nil {
+			// Warn only for 403, the one failure the client can act on (grant the
+			// share-read scope). Everything else — the expected 404, 5xx, timeouts,
+			// tenants without the GET — stays at Debug: nobody can act on it, and it
+			// can recur on every grant.
+			if client.IsPermissionDeniedError(err) {
+				l.Warn("baton-lucidchart: document collaborator pre-check GET denied — check OAuth scope; falling through to upsert",
+					zap.String("document_id", documentId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			} else {
+				l.Debug("baton-lucidchart: document collaborator pre-check GET failed; falling through to upsert",
+					zap.String("document_id", documentId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			}
+		} else if current.Role == role {
+			// Return the grant alongside GrantAlreadyExists so C1 materializes the
+			// membership now instead of waiting for the next sync; the annotation
+			// alone carries no grant data. The ID and metadata match what Grants() emits.
+			metadata := map[string]interface{}{metaRole: current.Role}
+			if !current.Created.IsZero() {
+				metadata[metaCreated] = current.Created.String()
+			}
+			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+		}
+
 		response, err := o.client.UpsertDocumentUserCollaborator(ctx, documentId, userId, role)
 		if err != nil {
+			// Lucid's upsert is documented as never returning 409 today, but if it
+			// ever does, treat it as an idempotent success rather than a failure —
+			// but only when the conflict really is about the role we asked for.
+			// When Lucid returns the conflicting record in the 409 body (the upsert
+			// decodes it before checking the status), that record is authoritative.
+			// If it names a *different* role, the requested role genuinely was not
+			// granted: the emitted grant is keyed on entitlement.Slug, so reporting
+			// GrantAlreadyExists would make C1 materialize an entitlement the user
+			// does not hold until the next sync corrects it. Fall through to the
+			// real error in that case. Only a matching or absent role is idempotent,
+			// and metaCreated is omitted rather than fabricated from a zero time.
+			//
+			// A successful pre-check outranks an absent role in the 409 body: if
+			// current != nil the GET returned a record, and the equal-role case
+			// already returned above, so current.Role != role is known. Treating an
+			// undecodable 409 as idempotent there would claim a role the user
+			// demonstrably does not hold.
+			if client.IsConflictError(err) && current == nil && (response.Role == "" || response.Role == role) {
+				metadata := map[string]interface{}{metaRole: role}
+				if !response.Created.IsZero() {
+					metadata[metaCreated] = response.Created.String()
+				}
+				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+			}
 			return nil, nil, err
 		}
 
@@ -168,12 +227,21 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 			metaCreated: response.Created.String(),
 		}
 
-		newGrant := grant.NewGrant(resource, documentHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
+		// The entitlement's resource (the document) is the first argument, not the
+		// principal: NewGrant keys NewEntitlementID on it, so passing the user here
+		// collides across every document the same user holds the same role on.
+		// Matches the pre-check and 409 branches above and what Grants() emits.
+		//
+		// Keyed on entitlement.Slug — the entitlement C1 actually asked for —
+		// rather than rebuilt from the role Lucid echoed back, so a normalized or
+		// substituted role in the response can never emit a grant for an
+		// entitlement that was never requested.
+		newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, userID, grant.WithGrantMetadata(metadata))
 
 		return []*v2.Grant{newGrant}, nil, nil
 	}
 
-	return nil, nil, fmt.Errorf("invalid resource type %s", resource.Id.ResourceType)
+	return nil, nil, fmt.Errorf("resource type %s is not supported", resource.Id.ResourceType)
 }
 
 func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
@@ -181,9 +249,11 @@ func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 		userId := grant.Principal.Id.Resource
 		documentId := grant.Entitlement.Resource.Id.Resource
 
+		// Remove the user's collaborator record entirely. A 404 (already gone) is
+		// an idempotent success (GrantAlreadyRevoked).
 		err := o.client.DeleteDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
-			if status.Code(err) == codes.NotFound {
+			if client.IsNotFoundError(err) {
 				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 			}
 
