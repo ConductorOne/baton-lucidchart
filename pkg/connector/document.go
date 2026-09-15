@@ -200,9 +200,9 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 			// does not hold until the next sync corrects it. Fall through to the
 			// real error in that case. Only a matching or absent role is idempotent,
 			// and metaCreated is omitted rather than fabricated from a zero time.
-			if client.IsConflictError(err) && (response == nil || response.Role == "" || response.Role == role) {
+			if client.IsConflictError(err) && (response.Role == "" || response.Role == role) {
 				metadata := map[string]interface{}{metaRole: role}
-				if response != nil && !response.Created.IsZero() {
+				if !response.Created.IsZero() {
 					metadata[metaCreated] = response.Created.String()
 				}
 				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
@@ -230,7 +230,7 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		return []*v2.Grant{newGrant}, nil, nil
 	}
 
-	return nil, nil, fmt.Errorf("invalid resource type %s", resource.Id.ResourceType)
+	return nil, nil, fmt.Errorf("resource type %s is not supported", resource.Id.ResourceType)
 }
 
 func (o *documentBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {

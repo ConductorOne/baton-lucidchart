@@ -6,6 +6,11 @@ import (
 	"net/http"
 )
 
+// UpsertFolderUserCollaborator sets a user's role on a folder. The returned
+// pointer is never nil, even when the error is non-nil: on an error it is either
+// zero-valued or best-effort-populated from a partially decoded error body (e.g.
+// a 409 carrying the conflicting record), so callers must check the error first
+// and treat the fields as advisory.
 func (c *LucidchartClient) UpsertFolderUserCollaborator(ctx context.Context, folderId, userId string, role string) (*FolderUserCollaboration, error) {
 	var response FolderUserCollaboration
 
@@ -48,6 +53,10 @@ func (c *LucidchartClient) DeleteFolderUserCollaborator(ctx context.Context, fol
 	return nil
 }
 
+// UpsertDocumentUserCollaborator sets a user's role on a document. As with the
+// folder upsert above, the returned pointer is never nil even on error: it is
+// zero-valued or best-effort-populated from a partially decoded error body, so
+// callers must check the error first and treat the fields as advisory.
 func (c *LucidchartClient) UpsertDocumentUserCollaborator(ctx context.Context, documentId, userId string, role string) (*DocumentUserCollaboration, error) {
 	var response DocumentUserCollaboration
 

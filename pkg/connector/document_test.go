@@ -89,6 +89,31 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		})
 	}
 
+	// Known, accepted limitation (not a bug to fix): the pre-check is best-effort,
+	// so when the GET fails for a reason other than "not a collaborator" — e.g. a
+	// persistent 403 from a mis-scoped API key — a genuine no-op re-grant is
+	// indistinguishable from a new grant. Unlike the fallthrough cases above, this
+	// one seeds a matching role first, so a real GrantAlreadyExists condition does
+	// exist upstream and is nonetheless not reported. The grant still succeeds;
+	// only the annotation is lost.
+	t.Run("pre-check GET 403 hides an existing matching role (known gap)", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		cts.roles["200"] = "comment" // user already holds exactly the role being granted
+		cts.getStatus = http.StatusForbidden
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.NoError(t, err)
+		require.Len(t, grants, 1)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}),
+			"documents the known gap: a blind pre-check cannot report an existing role")
+		require.Equal(t, int64(1), cts.putCallCount(),
+			"the upsert runs anyway, so upstream state still ends up correct")
+		role, ok := cts.getRole("200")
+		require.True(t, ok)
+		require.Equal(t, "comment", role)
+	})
+
 	t.Run("upsert failure propagates as an error", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "documents")
 		cts.putStatus = http.StatusInternalServerError

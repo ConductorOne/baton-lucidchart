@@ -185,9 +185,9 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// does not hold until the next sync corrects it. Fall through to the
 			// real error in that case. Only a matching or absent role is idempotent,
 			// and metaCreated is omitted rather than fabricated from a zero time.
-			if client.IsConflictError(err) && (response == nil || response.Role == "" || response.Role == role) {
+			if client.IsConflictError(err) && (response.Role == "" || response.Role == role) {
 				metadata := map[string]interface{}{metaRole: role}
-				if response != nil && !response.Created.IsZero() {
+				if !response.Created.IsZero() {
 					metadata[metaCreated] = response.Created.String()
 				}
 				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
