@@ -8,16 +8,39 @@ While developing the connector, please fill out this form. This information is n
     -Folders
     -Documents
 
-2. Can the connector provision any resources? If so, which ones? 
+2. Can the connector provision any resources? If so, which ones?
 
     Yes, folders, documents and accounts
 
-## Connector credentials 
+    Accounts can also be deprovisioned (deleted). Delete goes through Lucid's SCIM
+    surface, so it requires the SCIM token listed under "Connector credentials" and
+    is only available on Enterprise accounts.
+
+3. Does the connector support any actions? If so, which ones?
+
+    Yes, three account actions. All three run against Lucid's SCIM surface, so all
+    three require the SCIM token and are Enterprise-only:
+
+    -`enable_user` — reactivates an account (SCIM active=true)
+    -`disable_user` — deactivates an account (SCIM active=false); soft and reversible
+    -`update_user` — updates an account's firstName, lastName, email, username or roles
+
+    Note on roles: account creation (REST POST /v1/users) and update_user (SCIM
+    PATCH /Users/{id}) take different role spellings. update_user accepts either the
+    SCIM names (AccountAdmin, BillingAdmin, Developer, DocumentAdmin,
+    EnterpriseShieldAdmin, TemplateAdmin) or the kebab-case creation names
+    (team-admin, billing-admin, developer, document-admin, enterprise-shield-admin,
+    template-admin), translating the latter for you. The four remaining creation-time
+    roles — account-owner, group-admin, organizational-group-admin and team-manager —
+    have no SCIM equivalent and cannot be changed after the account exists.
+
+## Connector credentials
 
 1. What credentials or information are needed to set up the connector? (For example, API key, client ID and secret, domain, etc.)
 
     -API Key
     -OAuth 2 credentials (client-id and client-secret)
+    -SCIM token (optional; required for account delete and the three account actions)
 
 2. For each item in the list above: 
 
@@ -43,6 +66,18 @@ While developing the connector, please fill out this form. This information is n
     Use of this endpoint can only be authorized by administrators on accounts with Enterprise licenses.
     OAuth 2.0 Account Token Scopes: account.user
 
+    SCIM token: in the Lucid admin panel, go to Admin > App Integration > SCIM and
+    generate a bearer token. The same page shows the SCIM base URL
+    (https://users.lucid.app/scim/v2). Only account admins can reach this page, and it
+    is in the admin panel only — not the developer portal. SCIM is Enterprise-only and
+    must be enabled for the account by Lucid support.
+    SCIM reference: https://lucid.readme.io/reference/overview-scim
+
+    Pass the token with the --lucid-scim-token flag or the BATON_LUCID_SCIM_TOKEN
+    environment variable. Without it, sync, folder/document provisioning and account
+    creation all still work, but account delete and the
+    enable_user/disable_user/update_user actions return Unimplemented.
+
    * Does the credential need any specific scopes or permissions? If so, list them here. 
 
         Documents - Edit
@@ -58,6 +93,14 @@ While developing the connector, please fill out this form. This information is n
         The user must have a "Team Admin" role or higher in Lucidchart to access the developer portal and manage API or OAuth keys.
 
 ## Optional connector flags
+
+* `--lucid-scim-token` (string, default: empty)
+
+    SCIM 2.0 bearer token, described under "Connector credentials" above. Enables account delete and the `enable_user` / `disable_user` / `update_user` actions. Enterprise-only. Without it those operations return `Unimplemented`; everything else works.
+
+* `--lucid-content-transfer-user-email` (string, default: empty)
+
+    Email address of the user who should receive a deleted user's owned documents. When set, a delete calls `POST /v1/transferUserContent` first so the content is retained rather than removed with the account. Must be an email address, not a user ID — the Lucid API requires email. The OAuth token needs the `account.user.transfercontent` scope; without it the transfer call returns 403.
 
 * `--exclude-shortcuts` (boolean, default: `false`)
 
