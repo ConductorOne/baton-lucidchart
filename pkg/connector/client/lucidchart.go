@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -37,16 +38,6 @@ type ClientUrl string
 var LucidchartApiFedRampUrl ClientUrl = "https://api.lucidgov.app"
 var LucidchartApiUrl ClientUrl = "https://api.lucid.co"
 
-// LucidScimUrl is the default SCIM 2.0 base URL. SCIM is a separate surface
-// from the REST API: a different host, a separate (Enterprise-tier) bearer
-// token, and SCIM 2.0 JSON bodies. It is the official user-deprovisioning path.
-//
-// Lucid runs two SCIM integrations — "SCIM for admin management" (organizational
-// groups) and "SCIM for content access" (teams) — behind this single base URL.
-// The bearer token alone decides which integration a request reaches.
-// https://developer.lucid.co/reference/overview-scim
-var LucidScimUrl ClientUrl = "https://users.lucid.app/scim/v2"
-
 type LucidchartClient struct {
 	client      *uhttp.BaseHttpClient
 	tokenSource oauth2.TokenSource
@@ -62,7 +53,7 @@ type LucidchartClient struct {
 	// deprovisioning is skipped.
 	contentScimToken string
 	// scimBaseURL is the SCIM 2.0 base URL, shared by both integrations.
-	// Defaults to LucidScimUrl.
+	// Defaults to config.LucidScimUrl.
 	scimBaseURL string
 	// scimBaseURLErr records why a caller-supplied scim-base-url was rejected.
 	// It disables the SCIM surface instead of failing construction: sync runs
@@ -91,7 +82,7 @@ type LucidchartConfig struct {
 	// management" integration. Empty disables SCIM deprovisioning.
 	ScimToken string
 	// ScimBaseURL overrides the SCIM 2.0 base URL shared by both SCIM
-	// integrations. Defaults to LucidScimUrl.
+	// integrations. Defaults to config.LucidScimUrl.
 	ScimBaseURL string
 	// ContentScimToken is the bearer token for the "SCIM for content access"
 	// (teams) integration. Empty skips content-access deprovisioning.
@@ -135,7 +126,7 @@ func NewLucidchartClient(ctx context.Context, cfg LucidchartConfig) (*Lucidchart
 	// protected: no SCIM request is built at all while this is set.
 	var scimBaseURLErr error
 	if scimBaseURL == "" {
-		scimBaseURL = string(LucidScimUrl)
+		scimBaseURL = config.LucidScimUrl
 	} else if err := validateScimBaseURL(scimBaseURL); err != nil {
 		// FailedPrecondition, not a bare error: this is a configuration problem,
 		// and retrying it cannot help until scim-base-url is corrected. An
@@ -198,7 +189,7 @@ func validateScimBaseURL(scimBaseURL string) error {
 	if parsed.Scheme != "https" || parsed.Host == "" {
 		return fmt.Errorf(
 			"baton-lucidchart: scim-base-url must be an absolute https:// URL (for example %s), got %q",
-			LucidScimUrl,
+			config.LucidScimUrl,
 			scimBaseURL,
 		)
 	}

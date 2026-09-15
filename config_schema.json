@@ -149,7 +149,9 @@
       "name": "scim-base-url",
       "displayName": "Lucidchart SCIM Base URL",
       "description": "The Lucid SCIM 2.0 base URL. Leave empty to use Lucid's standard URL, https://users.lucid.app/scim/v2, which is correct for all commercial accounts. FedRAMP/GovSuite tenants must set this to the account-specific SCIM base URL generated in their GovSuite admin panel — Lucid publishes no fixed FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. Because both SCIM bearer tokens are sent to whatever host this names, it must be an https:// URL; a loopback host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server.",
-      "stringField": {}
+      "stringField": {
+        "defaultValue": "https://users.lucid.app/scim/v2"
+      }
     },
     {
       "name": "lucid-content-transfer-user-email",

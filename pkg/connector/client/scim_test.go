@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
@@ -393,6 +394,6 @@ func TestContentScimNotConfigured(t *testing.T) {
 
 func TestScimDefaultBaseURL(t *testing.T) {
 	c := testClient(t, "", "", "scim-test-token")
-	require.Equal(t, string(LucidScimUrl), c.scimBaseURL)
+	require.Equal(t, config.LucidScimUrl, c.scimBaseURL)
 	require.Equal(t, string(LucidchartApiUrl), c.baseURL)
 }

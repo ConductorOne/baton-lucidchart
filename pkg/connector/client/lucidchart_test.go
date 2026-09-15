@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
@@ -57,7 +58,7 @@ func TestNewLucidchartClientValidatesScimBaseURL(t *testing.T) {
 		{
 			Name:                "empty falls back to the default",
 			ScimBaseURL:         "",
-			ExpectedScimBaseURL: string(LucidScimUrl),
+			ExpectedScimBaseURL: config.LucidScimUrl,
 		},
 		{
 			Name:                "https is accepted",

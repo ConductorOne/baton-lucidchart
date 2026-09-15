@@ -2,9 +2,23 @@ package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
-
-	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 )
+
+// LucidScimUrl is the default SCIM 2.0 base URL. SCIM is a separate surface
+// from the REST API: a different host, a separate (Enterprise-tier) bearer
+// token, and SCIM 2.0 JSON bodies. It is the official user-deprovisioning path.
+//
+// Lucid runs two SCIM integrations — "SCIM for admin management" (organizational
+// groups) and "SCIM for content access" (teams) — behind this single base URL.
+// The bearer token alone decides which integration a request reaches.
+// https://developer.lucid.co/reference/overview-scim
+//
+// It lives in this package, not in pkg/connector/client, because the config
+// layer is the bottom of the dependency order here: pkg/connector and
+// pkg/connector/client both import pkg/config, so the constant has to sit below
+// them or the default value and the client's fallback could not share it
+// without config importing back up into the client.
+const LucidScimUrl = "https://users.lucid.app/scim/v2"
 
 var (
 	LucidApiKeyField = field.StringField(
@@ -99,7 +113,7 @@ var (
 			"host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server."),
 		// Same constant the client falls back to when this is empty, so the form
 		// default and the runtime default cannot drift apart.
-		field.WithDefaultValue(string(client.LucidScimUrl)),
+		field.WithDefaultValue(LucidScimUrl),
 	)
 
 	LucidContentTransferUserEmailField = field.StringField(
