@@ -236,7 +236,7 @@ func (cts *collaboratorTestServer) writeCollaboratorStatus(w http.ResponseWriter
 
 func newTestClient(t *testing.T, baseURL string) *client.LucidchartClient {
 	t.Helper()
-	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{ //nolint:gosec // G101: static token literal for tests, not a real credential
+	c, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{
 		APIKey:  "test-api-key",
 		BaseURL: baseURL,
 	})
