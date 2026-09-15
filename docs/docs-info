@@ -40,7 +40,8 @@ While developing the connector, please fill out this form. This information is n
 
     -API Key
     -OAuth 2 credentials (client-id and client-secret)
-    -SCIM token (optional; required for account delete and the three account actions)
+    -SCIM bearer token, "SCIM for admin management" (Enterprise only; optional, but required for user delete and the enable/disable/update-profile actions)
+    -SCIM bearer token, "SCIM for content access" (Enterprise only; optional — Lucid's second SCIM integration)
 
 2. For each item in the list above: 
 
@@ -78,6 +79,19 @@ While developing the connector, please fill out this form. This information is n
     creation all still work, but account delete and the
     enable_user/disable_user/update_user actions return Unimplemented.
 
+    SCIM tokens: https://developer.lucid.co/reference/overview-scim
+    Lucid ships two separate SCIM integrations, and both are served from the SAME base URL,
+    https://users.lucid.app/scim/v2. Nothing in the URL distinguishes them — the bearer token
+    alone determines which integration a call reaches, so each one has its own token:
+        • "SCIM for admin management" — syncs to organizational groups. This is the
+          lucid-scim-token setting, and it is what gates user delete and the
+          enable_user / disable_user / update_user actions.
+        • "SCIM for content access" — syncs to teams. This is the lucid-content-access-scim-token
+          setting. It is optional and additive: when configured, deleting a user also
+          deprovisions them from this integration.
+    Both are Enterprise-tier features; generate each token in the Lucid admin panel under the
+    corresponding SCIM integration.
+
    * Does the credential need any specific scopes or permissions? If so, list them here. 
 
         Documents - Edit
@@ -97,6 +111,18 @@ While developing the connector, please fill out this form. This information is n
 * `--lucid-scim-token` (string, default: empty)
 
     SCIM 2.0 bearer token, described under "Connector credentials" above. Enables account delete and the `enable_user` / `disable_user` / `update_user` actions. Enterprise-only. Without it those operations return `Unimplemented`; everything else works.
+
+* `--lucid-content-access-scim-token` (string, secret, no default)
+
+    The bearer token for Lucid's second SCIM integration, **"SCIM for content access"**, which syncs to teams. It is separate from `--lucid-scim-token` (the "SCIM for admin management" integration, which syncs to organizational groups); both integrations share the same base URL and are told apart only by the token.
+
+    Optional and additive: it extends delete rather than replacing `--lucid-scim-token`. When it is set, deleting a user removes them from admin management first and from content access second. If the first succeeds and the second fails, the connector returns a partial-deprovisioning error naming both halves instead of reporting success, so a user who may still hold team content access never looks like a completed offboarding.
+
+* `--scim-base-url` (string, default: `https://users.lucid.app/scim/v2`)
+
+    The Lucid SCIM 2.0 base URL, used by both SCIM tokens. Leave it empty on commercial accounts — the default is correct.
+
+    FedRAMP/GovSuite tenants must set it. Lucid publishes no fixed FedRAMP SCIM hostname: unlike the REST API, which swaps `api.lucid.co` for `api.lucidgov.app`, the SCIM base URL for a GovSuite account is generated per account inside the customer's own GovSuite admin panel, so the connector cannot derive it.
 
 * `--lucid-content-transfer-user-email` (string, default: empty)
 

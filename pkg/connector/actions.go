@@ -13,6 +13,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -65,9 +67,11 @@ const (
 	actionDisableUser = "disable_user"
 	actionEnableUser  = "enable_user"
 
-	argUserID         = "user_id"
-	retSuccess        = "success"
-	retSuccessDisplay = "Success"
+	argUserID          = "user_id"
+	retSuccess         = "success"
+	retSuccessDisplay  = "Success"
+	retConfirmedFields = "confirmed_fields"
+	retActive          = "active"
 )
 
 var updateUserSchema = &v2.BatonActionSchema{
@@ -89,6 +93,19 @@ var updateUserSchema = &v2.BatonActionSchema{
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
 		{Name: "updated_fields", DisplayName: "Updated Fields", Field: &config.Field_StringField{}},
+		{
+			Name:        retConfirmedFields,
+			DisplayName: "SCIM-Confirmed Fields",
+			Description: "The subset of updated_fields that Lucid's SCIM response echoed back with the requested value. " +
+				"Text is matched ignoring case, and roles count as confirmed when the requested ones are all present, since " +
+				"Lucid may return an effective role set carrying extras. Omitted entirely when Lucid answered without a " +
+				"usable resource body — either no body at all, or one the connector could not decode — and so confirmed " +
+				"nothing. Present but empty when Lucid returned a resource body that echoed " +
+				"none of the requested attributes back — including when Lucid echoed attributes back and " +
+				"contradicted every one of them, which is logged but does not fail the action, since Lucid's " +
+				"PATCH response is not documented as the authoritative post-update state.",
+			Field: &config.Field_StringField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -105,6 +122,14 @@ var disableUserSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
+		{
+			Name:        retActive,
+			DisplayName: "Active",
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
+				"body (no body at all, or one the connector could not decode), or with a body that omitted the active " +
+				"attribute — RFC 7644 lets a SCIM server echo back only a subset of the resource.",
+			Field: &config.Field_BoolField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -121,6 +146,14 @@ var enableUserSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{Name: retSuccess, DisplayName: retSuccessDisplay, Field: &config.Field_BoolField{}},
+		{
+			Name:        retActive,
+			DisplayName: "Active",
+			Description: "The active state Lucid's SCIM response confirmed. Omitted if Lucid answered without a usable resource " +
+				"body (no body at all, or one the connector could not decode), or with a body that omitted the active " +
+				"attribute — RFC 7644 lets a SCIM server echo back only a subset of the resource.",
+			Field: &config.Field_BoolField{},
+		},
 	},
 	ActionType: []v2.ActionType{
 		v2.ActionType_ACTION_TYPE_ACCOUNT,
@@ -202,12 +235,169 @@ func (c *Connector) updateUserHandler(
 		return nil, nil, status.Errorf(codes.InvalidArgument, "baton-lucidchart: update_user: no updatable fields provided")
 	}
 
-	if _, _, err := c.client.UpdateUser(ctx, userID, payload); err != nil {
+	confirmed, _, err := c.client.UpdateUser(ctx, userID, payload)
+	if err != nil {
 		return nil, nil, fmt.Errorf("baton-lucidchart: update_user %s: %w", userID, err)
 	}
 
-	result := actions.NewReturnValues(true, actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")))
+	fields := []actions.ReturnField{
+		actions.NewStringReturnField("updated_fields", strings.Join(updated, ", ")),
+	}
+	// Report which of the requested changes Lucid's PATCH response echoed back,
+	// rather than implying all of updated_fields landed. This is reporting, not
+	// adjudication: the echo is the best signal we have about the post-update
+	// state, but it is not documented as authoritative, so it never fails the
+	// action. Omitted entirely when Lucid answered without a resource body, so an
+	// empty confirmed_fields only ever means "Lucid told us the post-update state
+	// and echoed none of the requested attributes back" and never "Lucid stayed
+	// silent".
+	if !confirmed.IsZero() {
+		matched := confirmedFields(payload, confirmed)
+		// Every requested field came back disagreeing. That is logged and nothing
+		// more: failing here would rest on the unverified assumption that Lucid's
+		// PATCH response is always the authoritative, immediate post-update state,
+		// and Lucid's published spec documents 200 as unconditional success with no
+		// "applied nothing" case, so a wholesale contradiction inside a 200 is an
+		// undocumented vendor edge case the caller cannot act on. Debug, not Warn,
+		// for exactly that reason. The 2xx is what we report on, and confirmed_fields
+		// still comes back empty, which says the same thing to whoever reads it.
+		//
+		// The test is against all of updated_fields, not just the ones Lucid spoke
+		// about, because an omitted attribute carries no information — SCIM permits
+		// returning a subset of the resource — and must not count against the update.
+		if contradicted := contradictedFields(payload, confirmed); len(contradicted) == len(updated) {
+			ctxzap.Extract(ctx).Debug("baton-lucidchart: Lucid's post-update user contradicts the requested value for every field",
+				zap.String("action", actionUpdateUser),
+				zap.String("user_id", userID),
+				zap.Strings("contradicted_fields", contradicted),
+			)
+		}
+		fields = append(fields, actions.NewStringReturnField(retConfirmedFields, strings.Join(matched, ", ")))
+	}
+
+	result := actions.NewReturnValues(true, fields...)
 	return result, nil, nil
+}
+
+// confirmedFields returns the requested fields whose values Lucid's SCIM
+// response echoes back unchanged, in the same order and spelling as
+// updated_fields. It returns nil both when Lucid answered without a resource
+// body — a legitimate SCIM response and not a failure — and when the body it did
+// return confirmed nothing, so callers that need to distinguish those two must
+// check confirmed.IsZero() themselves.
+//
+// It matches on the same terms contradictedFields disagrees on — case-insensitive
+// strings, roles by subset — so the two can never both decline the same
+// attribute. Were they to disagree, a value Lucid case-normalized (or a role set
+// it returned with an extra entry) would count as neither confirmed nor
+// contradicted and report an empty confirmed_fields, which is the alarming
+// "Lucid echoed nothing back" signal, for a change that plainly landed.
+func confirmedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
+	if confirmed.IsZero() {
+		return nil
+	}
+
+	matches := func(requested, got string) bool {
+		return requested != "" && strings.EqualFold(requested, got)
+	}
+
+	var out []string
+	if confirmed.Name != nil && matches(payload.FirstName, confirmed.Name.GivenName) {
+		out = append(out, "firstName")
+	}
+	if confirmed.Name != nil && matches(payload.LastName, confirmed.Name.FamilyName) {
+		out = append(out, "lastName")
+	}
+	if payload.Email != "" && hasEmail(confirmed, payload.Email) {
+		out = append(out, "email")
+	}
+	if matches(payload.Username, confirmed.UserName) {
+		out = append(out, "username")
+	}
+	if len(payload.Roles) > 0 && containsAllRoles(confirmed.RoleValues(), payload.Roles) {
+		out = append(out, "roles")
+	}
+	return out
+}
+
+// contradictedFields returns the requested fields Lucid's SCIM response echoes
+// back with a value other than the one that was asked for — the post-update
+// state disagreeing with the request, which means the change did not take
+// effect.
+//
+// It deliberately does not report a field Lucid simply left out. RFC 7644 lets a
+// server return a subset of the resource, so an absent attribute carries no
+// information either way; treating that as a contradiction would fail updates
+// that did land. Absence is reported by leaving the field out of
+// confirmedFields instead.
+//
+// Its comparisons are deliberately laxer than confirmedFields'. Failing to
+// confirm a change costs an empty entry in confirmed_fields; wrongly declaring
+// one contradicted fails the whole action, so anything short of demonstrable
+// disagreement is left alone: strings compare case-insensitively (SCIM servers
+// normalize case on identifiers), and roles count as contradicted only when a
+// requested role is missing from the response, never when Lucid returns extra
+// ones — a "replace" that lands can still echo an effective set carrying an
+// implicit or default role.
+func contradictedFields(payload *client.UserUpdatePayload, confirmed *client.ScimUser) []string {
+	if confirmed.IsZero() {
+		return nil
+	}
+
+	differs := func(requested, got string) bool {
+		return requested != "" && got != "" && !strings.EqualFold(requested, got)
+	}
+
+	var out []string
+	if confirmed.Name != nil && differs(payload.FirstName, confirmed.Name.GivenName) {
+		out = append(out, "firstName")
+	}
+	if confirmed.Name != nil && differs(payload.LastName, confirmed.Name.FamilyName) {
+		out = append(out, "lastName")
+	}
+	if payload.Email != "" && len(confirmed.Emails) > 0 && !hasEmail(confirmed, payload.Email) {
+		out = append(out, "email")
+	}
+	if differs(payload.Username, confirmed.UserName) {
+		out = append(out, "username")
+	}
+	if got := confirmed.RoleValues(); len(payload.Roles) > 0 && len(got) > 0 && !containsAllRoles(got, payload.Roles) {
+		out = append(out, "roles")
+	}
+	return out
+}
+
+// hasEmail reports whether want appears anywhere in Lucid's echoed emails,
+// ignoring case. SCIM "emails" is multi-valued, so the confirm/contradict
+// comparison must look at every entry rather than at PrimaryEmail()'s single
+// pick: a response carrying both the old and new address with neither flagged
+// primary makes that pick the *old* one, which would read as a contradiction of
+// an update that landed. PrimaryEmail() stays the right choice for display.
+func hasEmail(confirmed *client.ScimUser, want string) bool {
+	for _, e := range confirmed.Emails {
+		if strings.EqualFold(e.Value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsAllRoles reports whether every requested role is present in got. It is
+// a subset test, not set equality: Lucid echoing back roles beyond the ones that
+// were requested is an effective role set, not a rejection of the request. Order
+// is irrelevant — SCIM does not guarantee a multi-valued attribute comes back in
+// the order it was sent.
+func containsAllRoles(got, requested []string) bool {
+	have := make(map[string]struct{}, len(got))
+	for _, r := range got {
+		have[strings.ToLower(r)] = struct{}{}
+	}
+	for _, r := range requested {
+		if _, ok := have[strings.ToLower(r)]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Connector) disableUserHandler(
@@ -246,12 +436,36 @@ func (c *Connector) setUserActive(
 	// SCIM PATCH replace of the active flag is idempotent: re-disabling an
 	// already-inactive user (or re-enabling an active one) returns success from
 	// the API, so no special "already in state" handling is required here.
-	annos, err := c.client.SetUserActive(ctx, userID, active)
+	confirmed, annos, err := c.client.SetUserActive(ctx, userID, active)
 	if err != nil {
 		return nil, annos, fmt.Errorf("baton-lucidchart: %s %s: %w", op, userID, err)
 	}
 
-	result := actions.NewReturnValues(true)
+	// Report the state Lucid confirmed rather than the one that was requested.
+	// Omitted entirely when Lucid answered without a resource body, so an absent
+	// field reads as "unconfirmed" and never as "confirmed false".
+	fields := []actions.ReturnField{}
+	if got := confirmed.GetActive(); got != nil {
+		// A body that disagrees with what was asked for is logged and nothing more.
+		// Failing here would rest on the unverified assumption that Lucid's PATCH
+		// response is always the authoritative, immediate post-update state; Lucid's
+		// published spec documents 200 as unconditional success with no "applied
+		// nothing" case, so a contradiction inside a 200 is an undocumented vendor
+		// edge case the caller cannot act on. Debug, not Warn, for exactly that
+		// reason. The 2xx is what we report on, and retActive still carries the state
+		// Lucid actually named, so the disagreement stays visible to whoever reads it.
+		if *got != active {
+			ctxzap.Extract(ctx).Debug("baton-lucidchart: Lucid's post-update user contradicts the requested active state",
+				zap.String("action", op),
+				zap.String("user_id", userID),
+				zap.Bool("requested_active", active),
+				zap.Bool("confirmed_active", *got),
+			)
+		}
+		fields = append(fields, actions.NewBoolReturnField(retActive, *got))
+	}
+
+	result := actions.NewReturnValues(true, fields...)
 	return result, annos, nil
 }
 

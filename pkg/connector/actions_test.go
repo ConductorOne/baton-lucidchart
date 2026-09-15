@@ -19,7 +19,11 @@ func TestUpdateUserHandler_ScimNotConfigured_ReturnsUnimplemented(t *testing.T) 
 	t.Parallel()
 
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: test token literal
-	lc, err := client.NewLucidchartClient(context.Background(), "api-key", ts, "http://localhost", "", "")
+	lc, err := client.NewLucidchartClient(context.Background(), client.LucidchartConfig{
+		APIKey:      "api-key",
+		TokenSource: ts,
+		BaseURL:     "http://localhost",
+	})
 	require.NoError(t, err)
 
 	c := &Connector{client: lc}
@@ -219,4 +223,370 @@ func TestRestRoleToScim_StaysInSyncWithBothEnums(t *testing.T) {
 	for _, scimRole := range knownScimRoles {
 		require.True(t, reachable[scimRole], "no REST role maps to %q", scimRole)
 	}
+}
+
+// scimActionConnector wires a Connector to a SCIM mock that answers every PATCH
+// with the given body.
+func scimActionConnector(t *testing.T, respond func(w http.ResponseWriter)) *Connector {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		respond(w)
+	}))
+	t.Cleanup(srv.Close)
+
+	return &Connector{client: testLucidClient(t, srv.URL, srv.URL)}
+}
+
+func jsonBody(body string) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+// update_user reports which of the requested changes Lucid's SCIM response
+// actually echoed back, instead of discarding that response entirely.
+func TestUpdateUserHandler_ReportsScimConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"userName": "ada.lovelace",
+		"name": {"givenName": "Ada", "familyName": "Stale"},
+		"emails": [{"value": "ada@example.com", "primary": true}]
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","username":"ada.lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName, email, username", fields["updated_fields"])
+	// lastName is absent: Lucid answered "Stale", not the requested "Lovelace".
+	require.Equal(t, "firstName, email, username", fields["confirmed_fields"])
+}
+
+// A bodyless PATCH response confirms nothing, and must not be reported as
+// confirming everything — nor as an empty confirmation, which is the distinct
+// and far more alarming "Lucid answered and matched none of them".
+func TestUpdateUserHandler_NoResponseBodyOmitsConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName", fields["updated_fields"])
+	require.NotContains(t, fields, "confirmed_fields")
+}
+
+// Lucid returned a resource body but echoed none of the requested attributes
+// back. SCIM permits returning a subset of the resource, so that confirms
+// nothing either way and must not fail an update that may well have landed — it
+// reports an empty confirmed_fields, distinct from the omitted-entirely case.
+func TestUpdateUserHandler_ResponseBodyEchoingNothing_ReportsEmptyConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7"}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName", fields["updated_fields"])
+	require.Contains(t, fields, "confirmed_fields")
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// Lucid echoed the requested attributes back and contradicted every one of
+// them. Lucid's spec documents the 200 as unconditional success and gives no
+// "applied nothing" case, so the echo is not authoritative enough to fail on:
+// the action succeeds and the empty confirmed_fields carries the disagreement.
+func TestUpdateUserHandler_ResponseBodyContradictingEverything_StillReportsSuccess(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"userName": "someone.else",
+		"name": {"givenName": "Stale", "familyName": "Stale"}
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName, lastName", fields["updated_fields"])
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// A "replace" on roles that landed can still echo back an effective set that
+// carries an implicit or default role. Extra roles are not a rejection of the
+// request, so a roles-only update must not fail on them.
+func TestUpdateUserHandler_ExtraRolesInResponseAreNotContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"},{"value":"DocumentAdmin"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// Not merely "not contradicted": the requested role is present, so it must
+	// read as confirmed. An empty confirmed_fields here would report the change
+	// as unacknowledged when it plainly landed.
+	require.Equal(t, "roles", fields["confirmed_fields"])
+}
+
+// A role Lucid did not apply is absent from the response, and that is the only
+// thing that counts as a contradiction for roles.
+func TestUpdateUserHandler_MissingRequestedRoleIsContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["DocumentAdmin"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// The contradiction shows up as an unconfirmed roles field, not as a failure.
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// Lucid normalizing the case of an identifier is not a contradiction. Both
+// halves compare case-insensitively, so the address reads as confirmed rather
+// than falling between the two and reporting an empty confirmed_fields.
+func TestUpdateUserHandler_CaseNormalizedEmailIsNotContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"ada@example.com","primary":true}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"Ada@Example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	// The address matches bar its case, so it is confirmed, not merely
+	// uncontradicted.
+	require.Equal(t, "email", fields["confirmed_fields"])
+}
+
+// SCIM "emails" is multi-valued. A response carrying both the old and the new
+// address with neither flagged primary makes PrimaryEmail() return the old one,
+// so comparing against that single pick would fail an update that landed.
+func TestUpdateUserHandler_EmailMatchedAcrossAllEntries(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"old@example.com"},{"value":"new@example.com"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"new@example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "email", fields["confirmed_fields"])
+}
+
+// The requested address appearing in no entry at all is the only thing that
+// makes email a contradiction.
+func TestUpdateUserHandler_EmailAbsentFromAllEntriesIsContradiction(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","emails":[{"value":"old@example.com"},{"value":"other@example.com"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"email":"new@example.com"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// An attribute Lucid omitted must never help condemn the update. Here firstName
+// is contradicted and roles is simply absent, so the roles half may well have
+// landed — failing terminally would strand it on every retry.
+func TestUpdateUserHandler_OmittedFieldDoesNotTriggerFailure(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","name":{"givenName":"Stale"}}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","roles":["Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "", fields["confirmed_fields"])
+}
+
+// A contradiction on one attribute while others landed is a partial update, not
+// a no-op: confirmed_fields already reports exactly which changes took, and
+// failing the whole action would discard that.
+func TestUpdateUserHandler_PartialContradictionStillReportsConfirmedFields(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{
+		"id": "lucid-7",
+		"name": {"givenName": "Ada", "familyName": "Stale"}
+	}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"firstName":"Ada","lastName":"Lovelace"}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.Equal(t, "firstName", fields["confirmed_fields"])
+}
+
+func TestUpdateUserHandler_ConfirmsRolesRegardlessOfOrder(t *testing.T) {
+	c := scimActionConnector(t, jsonBody(`{"id":"lucid-7","roles":[{"value":"Developer"},{"value":"DocumentAdmin"}]}`))
+
+	args, err := structpb.NewStruct(map[string]any{
+		"user_id":      "7",
+		"user_profile": `{"roles":["DocumentAdmin","Developer"]}`,
+	})
+	require.NoError(t, err)
+
+	res, _, err := c.updateUserHandler(context.Background(), args)
+	require.NoError(t, err)
+	require.Equal(t, "roles", res.AsMap()["confirmed_fields"])
+}
+
+// disable_user / enable_user report the active state Lucid confirmed, not the
+// one that was requested.
+func TestSetUserActiveHandlers_ReturnConfirmedActiveState(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		disable  bool
+		wantBool bool
+	}{
+		{name: "disable", body: `{"id":"lucid-7","active":false}`, disable: true, wantBool: false},
+		{name: "enable", body: `{"id":"lucid-7","active":true}`, disable: false, wantBool: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := scimActionConnector(t, jsonBody(tc.body))
+
+			args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+			require.NoError(t, err)
+
+			handler := c.enableUserHandler
+			if tc.disable {
+				handler = c.disableUserHandler
+			}
+
+			res, _, err := handler(context.Background(), args)
+			require.NoError(t, err)
+
+			fields := res.AsMap()
+			require.Equal(t, true, fields["success"])
+			require.Equal(t, tc.wantBool, fields["active"])
+		})
+	}
+}
+
+// Lucid answered without an HTTP error but its body contradicts the requested
+// state. Lucid's spec documents the 200 as unconditional success and gives no
+// "applied nothing" case, so the echo is not authoritative enough to fail on:
+// the action succeeds and reports the active state Lucid actually named.
+func TestSetUserActiveHandlers_ConfirmedStateContradictsRequest_StillReportsSuccess(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		disable  bool
+		wantBool bool
+	}{
+		{name: "disable confirmed still active", body: `{"id":"lucid-7","active":true}`, disable: true, wantBool: true},
+		{name: "enable confirmed still inactive", body: `{"id":"lucid-7","active":false}`, disable: false, wantBool: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := scimActionConnector(t, jsonBody(tc.body))
+
+			args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+			require.NoError(t, err)
+
+			handler := c.enableUserHandler
+			if tc.disable {
+				handler = c.disableUserHandler
+			}
+
+			res, _, err := handler(context.Background(), args)
+			require.NoError(t, err)
+
+			fields := res.AsMap()
+			require.Equal(t, true, fields["success"])
+			// The state Lucid named, not the one that was requested.
+			require.Equal(t, tc.wantBool, fields["active"])
+		})
+	}
+}
+
+// An absent active field must read as "unconfirmed", never as "confirmed false".
+func TestSetUserActiveHandler_NoResponseBodyOmitsActive(t *testing.T) {
+	c := scimActionConnector(t, func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
+
+	args, err := structpb.NewStruct(map[string]any{"user_id": "7"})
+	require.NoError(t, err)
+
+	res, _, err := c.disableUserHandler(context.Background(), args)
+	require.NoError(t, err)
+
+	fields := res.AsMap()
+	require.Equal(t, true, fields["success"])
+	require.NotContains(t, fields, "active")
 }

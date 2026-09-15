@@ -64,7 +64,14 @@ func (c *LucidchartClient) CreateUser(ctx context.Context, payload *UserCreatePa
 // SCIM 2.0 surface (https://users.lucid.app/scim/v2/Users/{id}). Only fields
 // with non-empty values in payload are sent. userID is the bare REST user ID
 // (e.g. "101"); the lucid- SCIM prefix is applied internally.
-func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payload *UserUpdatePayload) (*User, annotations.Annotations, error) {
+//
+// Returns the SCIM User resource Lucid answered with — its confirmed
+// post-update state, which is not necessarily what was requested. It is the
+// SCIM shape rather than the REST *User because that is what this endpoint
+// actually returns: SCIM ids are prefixed strings ("lucid-101"), not the REST
+// model's int, so translating would have to invent or drop data. Never nil on
+// success, but may be IsZero when Lucid answered without a body.
+func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payload *UserUpdatePayload) (*ScimUser, annotations.Annotations, error) {
 	if !c.ScimConfigured() {
 		return nil, nil, errScimNotConfigured
 	}
@@ -113,11 +120,12 @@ func (c *LucidchartClient) UpdateUser(ctx context.Context, userID string, payloa
 		return nil, nil, err
 	}
 
-	if _, err := c.doRequest(ctx, req, nil); err != nil {
+	updated := &ScimUser{}
+	if _, err := c.doRequestWithOptions(ctx, req, scimUserResponse(ctx, updated)); err != nil {
 		return nil, nil, err
 	}
 
-	return nil, nil, nil
+	return updated, nil, nil
 }
 
 // TransferContent moves all documents owned by fromUserEmail to toUserEmail via

@@ -134,14 +134,14 @@ func New(ctx context.Context, connectorConfig *cfg.Lucidchart, opts *cli.Connect
 		})
 	}
 
-	lucidClient, err := client.NewLucidchartClient(
-		ctx,
-		connectorConfig.LucidApiKey,
-		tokenSource,
-		connectorConfig.BaseUrl,
-		connectorConfig.LucidScimToken,
-		connectorConfig.ScimBaseUrl,
-	)
+	lucidClient, err := client.NewLucidchartClient(ctx, client.LucidchartConfig{
+		APIKey:           connectorConfig.LucidApiKey,
+		TokenSource:      tokenSource,
+		BaseURL:          connectorConfig.BaseUrl,
+		ScimToken:        connectorConfig.LucidScimToken,
+		ScimBaseURL:      connectorConfig.ScimBaseUrl,
+		ContentScimToken: connectorConfig.LucidContentAccessScimToken,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

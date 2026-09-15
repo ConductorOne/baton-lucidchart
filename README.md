@@ -28,14 +28,18 @@ baton-lucidchart \
     --lucid-refresh-token="" \
     --lucid-api-key="" \
     --lucid-scim-token="" \
+    --lucid-content-access-scim-token="" \
+    --scim-base-url="" \
     --lucid-content-transfer-user-email=""
 ```
 
-The last two flags are optional and can be omitted entirely; `--exclude-shortcuts` is deliberately left out of this example because it is a boolean — copying it in would silently drop shortcut documents and folders from the sync.
+Every flag below `--lucid-api-key` is optional and can be omitted entirely; `--exclude-shortcuts` is deliberately left out of this example because it is a boolean — copying it in would silently drop shortcut documents and folders from the sync.
 
 ### Optional flags
 
 - `--lucid-scim-token` – SCIM 2.0 bearer token. **Requires a Lucid Enterprise account**, which is the only tier where Lucid issues one. Without it the connector still syncs and creates accounts, but user delete and the `disable_user` / `enable_user` / `update_user` actions return `Unimplemented` on every invocation. See [Enterprise-only capabilities](#enterprise-only-capabilities).
+- `--lucid-content-access-scim-token` – bearer token for Lucid's second SCIM integration (content access / teams). Optional on top of `--lucid-scim-token`. See [SCIM configuration](#scim-configuration).
+- `--scim-base-url` – SCIM 2.0 base URL. FedRAMP/GovSuite tenants only. See [FedRAMP / GovSuite tenants](#fedramp--govsuite-tenants).
 - `--lucid-content-transfer-user-email` – email address of the user to transfer a deleted user's owned documents to. When set, a delete transfers the content first so it is retained.
 - `--exclude-shortcuts` – exclude shortcut documents and folders (`isShortcut=true`) from the sync.
 
@@ -65,6 +69,42 @@ The selector is `--lucid-refresh-token`, not `--oauth2`: the C1-hosted token sou
 | `disable_user` / `enable_user` / `update_user` actions | Yes |
 
 *Account creation needs no SCIM token, but it is still an Enterprise-only feature on Lucid's side — the provisioning endpoint is restricted to accounts with Enterprise licenses.
+
+### SCIM configuration
+
+Lucid runs **two separate SCIM integrations**, and they are served from the
+**same base URL** — `https://users.lucid.app/scim/v2`. Nothing in the URL
+distinguishes them: the bearer token alone decides which integration a request
+reaches. Both are Enterprise-tier features. See
+[Lucid's SCIM overview](https://developer.lucid.co/reference/overview-scim).
+
+| Flag | Integration | What it covers |
+| :--- | :--- | :--- |
+| `--lucid-scim-token` | SCIM for admin management | Syncs to organizational groups. Required for user delete and for the `disable_user` / `enable_user` / `update_user` actions — without it they return `Unimplemented`. |
+| `--lucid-content-access-scim-token` | SCIM for content access | Syncs to teams. Optional. When set, deleting a user **also** deprovisions them from this integration. |
+
+Both flags are optional in the sense that sync and account creation work without
+either. `--lucid-content-access-scim-token` is additionally optional on top of
+`--lucid-scim-token`: it extends delete, it does not replace it.
+
+When the content-access token is configured, a delete removes the user from
+admin management first, then from content access. If the first succeeds and the
+second fails, the connector returns a **partial deprovisioning** error naming
+both halves rather than reporting success — the user was removed from admin
+management but may still hold team content access, and that must not read as a
+clean offboarding.
+
+#### FedRAMP / GovSuite tenants
+
+`--scim-base-url` defaults to `https://users.lucid.app/scim/v2`, which is correct
+for all commercial accounts. FedRAMP/GovSuite tenants must set it explicitly.
+
+Unlike the REST API, which swaps one published hostname for another
+(`api.lucid.co` → `api.lucidgov.app`), **Lucid publishes no fixed FedRAMP SCIM
+hostname**. The SCIM base URL is generated per account inside your own GovSuite
+admin panel, so the connector cannot derive it — copy it from there and pass it
+in. It applies to both SCIM tokens, since both integrations share the one base
+URL.
 
 ## brew
 
@@ -148,12 +188,14 @@ Flags:
       --lucid-api-key string                             required: The API key for the Lucidchart API. ($BATON_LUCID_API_KEY)
       --lucid-client-id string                           The OAuth2 client ID for the Lucidchart API. ($BATON_LUCID_CLIENT_ID)
       --lucid-client-secret string                       The OAuth2 client secret for the Lucidchart API. ($BATON_LUCID_CLIENT_SECRET)
+      --lucid-content-access-scim-token string           The SCIM 2.0 bearer token for Lucid's "SCIM for content access" integration, which syncs to teams. This is a second, separate token from lucid-scim-token (the "SCIM for admin management" integration, which syncs to organizational groups); both integrations share the same SCIM base URL and are distinguished only by the token. Optional: when set, deleting a user also deprovisions them from the content-access integration. ($BATON_LUCID_CONTENT_ACCESS_SCIM_TOKEN)
       --lucid-content-transfer-user-email string         Email address of the user to transfer owned documents to before deleting a user. When set, a user delete first transfers their content to this user so it is retained. Must be an email address — the Lucid transferUserContent API requires email, not a numeric user ID. ($BATON_LUCID_CONTENT_TRANSFER_USER_EMAIL)
       --lucid-scim-token string                          The SCIM 2.0 bearer token for user deprovisioning (deactivate/delete). Requires Lucid Enterprise tier. Optional: sync and account creation work without it. ($BATON_LUCID_SCIM_TOKEN)
       --oauth2 string                                    The OAuth2 token for the Lucidchart API. ($BATON_OAUTH2)
       --otel-collector-endpoint string                   The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided) ($BATON_OTEL_COLLECTOR_ENDPOINT)
       --parallel-sync                                    Deprecated: use --workers instead. ($BATON_PARALLEL_SYNC)
   -p, --provisioning                                     This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --scim-base-url string                             The Lucid SCIM 2.0 base URL. Leave empty to use Lucid's standard URL, https://users.lucid.app/scim/v2, which is correct for all commercial accounts. FedRAMP/GovSuite tenants must set this to the account-specific SCIM base URL generated in their GovSuite admin panel — Lucid publishes no fixed FedRAMP SCIM hostname. Applies to both SCIM tokens, since Lucid's two SCIM integrations share one base URL. Because both SCIM bearer tokens are sent to whatever host this names, it must be an https:// URL; a loopback host such as http://127.0.0.1:8080 is also accepted so the connector can be pointed at a local test server. ($BATON_SCIM_BASE_URL) (default "https://users.lucid.app/scim/v2")
       --skip-entitlements-and-grants                     This must be set to skip syncing of entitlements and grants ($BATON_SKIP_ENTITLEMENTS_AND_GRANTS)
       --skip-full-sync                                   This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
       --storage-engine string                            The storage engine to use when opening the sync c1z file: sqlite or pebble. Defaults to pebble when unset. ($BATON_STORAGE_ENGINE)

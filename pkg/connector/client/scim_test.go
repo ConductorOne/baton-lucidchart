@@ -8,14 +8,29 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/conductorone/baton-lucidchart/pkg/config"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func testClient(t *testing.T, restURL, scimURL, scimToken string) *LucidchartClient {
 	t.Helper()
+	return testClientWithContentToken(t, restURL, scimURL, scimToken, "")
+}
+
+func testClientWithContentToken(t *testing.T, restURL, scimURL, scimToken, contentScimToken string) *LucidchartClient {
+	t.Helper()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "oauth-test-token"}) //nolint:gosec // G101: static token literal for tests, not a real credential
-	c, err := NewLucidchartClient(context.Background(), "api-key", ts, restURL, scimToken, scimURL)
+	c, err := NewLucidchartClient(context.Background(), LucidchartConfig{
+		APIKey:           "api-key",
+		TokenSource:      ts,
+		BaseURL:          restURL,
+		ScimToken:        scimToken,
+		ScimBaseURL:      scimURL,
+		ContentScimToken: contentScimToken,
+	})
 	require.NoError(t, err)
 	return c
 }
@@ -31,15 +46,25 @@ func TestSetUserActive(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"123","active":false}`))
+		_, _ = w.Write([]byte(`{"id":"lucid-123","userName":"ada@example.com","active":false,"externalId":"ext-1"}`))
 	}))
 	defer srv.Close()
 
 	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
 
-	_, err := c.SetUserActive(context.Background(), "123", false)
+	updated, _, err := c.SetUserActive(context.Background(), "123", false)
 	require.NoError(t, err)
+
+	// The PATCH response is Lucid's confirmed post-write state, not a discarded body.
+	require.NotNil(t, updated)
+	require.False(t, updated.IsZero())
+	require.Equal(t, "lucid-123", updated.ID)
+	require.Equal(t, "ada@example.com", updated.UserName)
+	require.Equal(t, "ext-1", updated.ExternalID)
+	require.NotNil(t, updated.GetActive())
+	require.False(t, *updated.GetActive())
 
 	require.Equal(t, http.MethodPatch, gotMethod)
 	require.Equal(t, "/Users/lucid-123", gotPath)
@@ -100,6 +125,184 @@ func TestUpdateUserSendsDocumentedScimShape(t *testing.T) {
 	}
 }
 
+// UpdateUser used to return (nil, nil, nil) unconditionally, throwing away the
+// SCIM User resource Lucid answers a PATCH with. It must now return that state.
+func TestUpdateUserReturnsConfirmedScimUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"id": "lucid-123",
+			"userName": "ada.lovelace",
+			"active": true,
+			"externalId": "ext-42",
+			"name": {"givenName": "Ada", "familyName": "Lovelace"},
+			"emails": [{"value": "ada@example.com", "type": "work", "primary": true}],
+			"roles": [{"value": "DocumentAdmin"}, {"value": "Developer"}]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{
+		FirstName: "Ada",
+		LastName:  "Lovelace",
+		Email:     "ada@example.com",
+		Username:  "ada.lovelace",
+		Roles:     []string{"DocumentAdmin", "Developer"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.False(t, updated.IsZero())
+
+	require.Equal(t, "lucid-123", updated.ID)
+	require.Equal(t, "ada.lovelace", updated.UserName)
+	require.Equal(t, "ext-42", updated.ExternalID)
+	require.NotNil(t, updated.GetActive())
+	require.True(t, *updated.GetActive())
+	require.Equal(t, "Ada", updated.Name.GivenName)
+	require.Equal(t, "Lovelace", updated.Name.FamilyName)
+	require.Equal(t, "ada@example.com", updated.PrimaryEmail())
+	require.ElementsMatch(t, []string{"DocumentAdmin", "Developer"}, updated.RoleValues())
+}
+
+// A SCIM server may answer a PATCH with 204 No Content. That is a successful
+// write with nothing to confirm, not a failure — and it must not be turned into
+// one by asking for a body.
+func TestScimWriteWithNoResponseBodyStillSucceeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{FirstName: "Ada"})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.True(t, updated.IsZero(), "a bodyless response confirms nothing")
+
+	active, _, err := c.SetUserActive(context.Background(), "123", false)
+	require.NoError(t, err)
+	require.True(t, active.IsZero())
+	require.Nil(t, active.GetActive())
+}
+
+// uhttp runs every DoOption before it looks at the status and joins their errors
+// into the one it returns for a non-2xx. An error body that advertises JSON but
+// is not a SCIM User must therefore not add a decode failure on top of the real
+// HTTP status error — the status is the finding, the body shape is not.
+func TestScimErrorResponseDoesNotAddDecodeNoise(t *testing.T) {
+	cases := []struct {
+		Name string
+		Body string
+	}{
+		{Name: "json array", Body: `[]`},
+		{Name: "json string", Body: `"nope"`},
+	}
+
+	for _, s := range cases {
+		t.Run(s.Name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(s.Body))
+			}))
+			defer srv.Close()
+
+			c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+			_, _, err := c.SetUserActive(context.Background(), "123", false)
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "failed to decode SCIM user response")
+			// The real failure still surfaces, both as text and as a gRPC code.
+			require.Contains(t, err.Error(), "400 Bad Request")
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
+}
+
+// A 2xx says Lucid applied the write. If the body it came back with will not
+// decode into a ScimUser — our Go types and Lucid's real shapes having diverged
+// — that costs the confirmation, not the write. Failing here would be a
+// permanent false negative: SCIM PATCH replace is idempotent, so every platform
+// retry re-applies the same successful write and meets the same body again.
+func TestScimUndecodableSuccessBodyDoesNotFailTheWrite(t *testing.T) {
+	cases := []struct {
+		Name string
+		Body string
+	}{
+		// Shapes that are not a SCIM User at all.
+		{Name: "json array", Body: `[]`},
+		{Name: "json string", Body: `"nope"`},
+		// Shapes that are a user object, but with fields typed the way a real
+		// server might plausibly differ from our struct.
+		{Name: "active as string", Body: `{"active":"true"}`},
+		{Name: "active as number", Body: `{"active":1}`},
+		{Name: "roles as bare strings", Body: `{"id":"lucid-123","roles":["Developer"]}`},
+		{Name: "numeric id", Body: `{"id":123}`},
+	}
+
+	for _, s := range cases {
+		t.Run(s.Name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(s.Body))
+			}))
+			defer srv.Close()
+
+			c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+			active, _, err := c.SetUserActive(context.Background(), "123", false)
+			require.NoError(t, err, "a 2xx write must not fail on an undecodable body")
+			require.NotNil(t, active)
+			require.True(t, active.IsZero(), "an undecodable body confirms nothing")
+			require.Nil(t, active.GetActive())
+
+			updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{FirstName: "Ada"})
+			require.NoError(t, err)
+			require.NotNil(t, updated)
+			require.True(t, updated.IsZero())
+		})
+	}
+}
+
+// A partial decode must not leave a half-populated confirmation behind: the
+// fields that landed before the type error are not a confirmation of anything.
+func TestScimPartialDecodeLeavesNoConfirmation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// id and userName decode fine; active then fails on the wrong type.
+		_, _ = w.Write([]byte(`{"id":"lucid-123","userName":"ada@example.com","active":"true"}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL, srv.URL, "scim-test-token")
+
+	updated, _, err := c.UpdateUser(context.Background(), "123", &UserUpdatePayload{Username: "ada@example.com"})
+	require.NoError(t, err)
+	require.True(t, updated.IsZero(), "a partial decode must read as unconfirmed, not as a partial confirmation")
+	require.Empty(t, updated.ID)
+	require.Empty(t, updated.UserName)
+}
+
+// PrimaryEmail falls back to the first address when SCIM marks none primary,
+// which is what Lucid's single-address user model means in practice.
+func TestScimUserPrimaryEmailFallback(t *testing.T) {
+	u := &ScimUser{Emails: []ScimUserEmail{{Value: "first@example.com"}, {Value: "second@example.com"}}}
+	require.Equal(t, "first@example.com", u.PrimaryEmail())
+
+	u.Emails[1].Primary = true
+	require.Equal(t, "second@example.com", u.PrimaryEmail())
+
+	require.Empty(t, (*ScimUser)(nil).PrimaryEmail())
+	require.Nil(t, (*ScimUser)(nil).RoleValues())
+	require.True(t, (*ScimUser)(nil).IsZero())
+}
+
 func TestScimDeleteUser(t *testing.T) {
 	var gotMethod, gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,15 +337,63 @@ func TestScimNotConfigured(t *testing.T) {
 	c := testClient(t, "https://api.lucid.co", "", "")
 	require.False(t, c.ScimConfigured())
 
-	_, err := c.SetUserActive(context.Background(), "123", false)
+	_, _, err := c.SetUserActive(context.Background(), "123", false)
 	require.ErrorIs(t, err, errScimNotConfigured)
 
 	_, err = c.ScimDeleteUser(context.Background(), "123")
 	require.ErrorIs(t, err, errScimNotConfigured)
 }
 
+// Lucid's two SCIM integrations share one base URL and one /Users/{id} path;
+// only the bearer token distinguishes them. ScimDeleteUserContentAccess must
+// therefore differ from ScimDeleteUser in exactly one respect: the token.
+func TestScimDeleteUserContentAccess(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClientWithContentToken(t, srv.URL, srv.URL, "scim-test-token", "content-scim-test-token")
+	require.True(t, c.ScimConfigured())
+	require.True(t, c.ContentScimConfigured())
+
+	_, err := c.ScimDeleteUserContentAccess(context.Background(), "abc")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodDelete, gotMethod)
+	require.Equal(t, "/Users/lucid-abc", gotPath)
+	require.Equal(t, "Bearer content-scim-test-token", gotAuth)
+}
+
+func TestScimDeleteUserUsesAdminTokenNotContentToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := testClientWithContentToken(t, srv.URL, srv.URL, "scim-test-token", "content-scim-test-token")
+
+	_, err := c.ScimDeleteUser(context.Background(), "abc")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer scim-test-token", gotAuth)
+}
+
+func TestContentScimNotConfigured(t *testing.T) {
+	c := testClient(t, "https://api.lucid.co", "", "scim-test-token")
+	require.True(t, c.ScimConfigured(), "the admin token alone must still configure SCIM")
+	require.False(t, c.ContentScimConfigured())
+
+	_, err := c.ScimDeleteUserContentAccess(context.Background(), "123")
+	require.ErrorIs(t, err, errContentScimNotConfigured)
+}
+
 func TestScimDefaultBaseURL(t *testing.T) {
 	c := testClient(t, "", "", "scim-test-token")
-	require.Equal(t, string(LucidScimUrl), c.scimBaseURL)
+	require.Equal(t, config.LucidScimUrl, c.scimBaseURL)
 	require.Equal(t, string(LucidchartApiUrl), c.baseURL)
 }
