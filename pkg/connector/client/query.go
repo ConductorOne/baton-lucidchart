@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
 var (
@@ -129,14 +131,15 @@ func (c *LucidchartClient) GetFolderUserCollaborator(ctx context.Context, folder
 
 	path := fmt.Sprintf(FolderUserCollaboratorPath, folderId, userId)
 
-	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
+	// TTL, not invalidated by the PUT/DELETE on this same path) so the role this
+	// pre-check compares against is always current. WithNoCache is the SDK's own
+	// option for this rather than a hand-set header, so the cache contract stays
+	// the SDK's to define.
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey, uhttp.WithNoCache())
 	if err != nil {
 		return nil, err
 	}
-	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
-	// TTL, not invalidated by the PUT/DELETE on this same path) so the role
-	// this pre-check compares against is always current.
-	req.Header.Set("Cache-Control", "no-cache")
 
 	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {
@@ -184,14 +187,15 @@ func (c *LucidchartClient) GetDocumentUserCollaborator(ctx context.Context, docu
 
 	path := fmt.Sprintf(DocumentUserCollaboratorPath, documentId, userId)
 
-	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey)
+	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
+	// TTL, not invalidated by the PUT/DELETE on this same path) so the role this
+	// pre-check compares against is always current. WithNoCache is the SDK's own
+	// option for this rather than a hand-set header, so the cache contract stays
+	// the SDK's to define.
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, LucidAuthTypeApiKey, uhttp.WithNoCache())
 	if err != nil {
 		return nil, err
 	}
-	// Read-before-write: bypass uhttp's GET response cache (on by default, 1h
-	// TTL, not invalidated by the PUT/DELETE on this same path) so the role
-	// this pre-check compares against is always current.
-	req.Header.Set("Cache-Control", "no-cache")
 
 	_, err = c.doRequest(ctx, req, &response)
 	if err != nil {

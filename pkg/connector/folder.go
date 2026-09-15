@@ -164,9 +164,9 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// Return the grant alongside GrantAlreadyExists so C1 materializes the
 			// membership now instead of waiting for the next sync; the annotation
 			// alone carries no grant data. The ID and metadata match what Grants() emits.
-			metadata := map[string]interface{}{
-				metaRole:    current.Role,
-				metaCreated: current.Created.String(),
+			metadata := map[string]interface{}{metaRole: current.Role}
+			if !current.Created.IsZero() {
+				metadata[metaCreated] = current.Created.String()
 			}
 			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
 			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
@@ -185,7 +185,13 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// does not hold until the next sync corrects it. Fall through to the
 			// real error in that case. Only a matching or absent role is idempotent,
 			// and metaCreated is omitted rather than fabricated from a zero time.
-			if client.IsConflictError(err) && (response.Role == "" || response.Role == role) {
+			//
+			// A successful pre-check outranks an absent role in the 409 body: if
+			// current != nil the GET returned a record, and the equal-role case
+			// already returned above, so current.Role != role is known. Treating an
+			// undecodable 409 as idempotent there would claim a role the user
+			// demonstrably does not hold.
+			if client.IsConflictError(err) && current == nil && (response.Role == "" || response.Role == role) {
 				metadata := map[string]interface{}{metaRole: role}
 				if !response.Created.IsZero() {
 					metadata[metaCreated] = response.Created.String()
@@ -210,7 +216,12 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 		// principal: NewGrant keys NewEntitlementID on it, so passing the user here
 		// collides across every folder the same user holds the same role on.
 		// Matches the pre-check and 409 branches above and what Grants() emits.
-		newGrant := grant.NewGrant(entitlement.Resource, folderHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
+		//
+		// Keyed on entitlement.Slug — the entitlement C1 actually asked for —
+		// rather than rebuilt from the role Lucid echoed back, so a normalized or
+		// substituted role in the response can never emit a grant for an
+		// entitlement that was never requested.
+		newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, userID, grant.WithGrantMetadata(metadata))
 
 		return []*v2.Grant{newGrant}, nil, nil
 	}
