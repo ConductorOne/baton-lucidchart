@@ -80,7 +80,10 @@ func newSingleCollaboratorServer(t *testing.T, kind string) *singleCollaboratorS
 
 func newCacheTestClient(t *testing.T, baseURL string) *LucidchartClient {
 	t.Helper()
-	c, err := NewLucidchartClient(context.Background(), "test-api-key", nil, baseURL, "", "")
+	c, err := NewLucidchartClient(context.Background(), LucidchartConfig{ //nolint:gosec // G101: static token literal for tests, not a real credential
+		APIKey:  "test-api-key",
+		BaseURL: baseURL,
+	})
 	require.NoError(t, err)
 	return c
 }
