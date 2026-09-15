@@ -203,9 +203,11 @@ func (c *LucidchartClient) newScimRequestWithToken(
 // reported alongside it.
 //
 // A success body that claims to be JSON but will not decode into a ScimUser is
-// treated the same way, and logged at Warn rather than returned: nothing
-// failed, but our Go types and Lucid's real responses have diverged, which is
-// worth someone's attention.
+// treated the same way, and logged rather than returned: nothing failed, but
+// our Go types and Lucid's real responses have diverged. Debug, not Warn — this
+// repo's log-level convention (FP3) reserves Warn for conditions a customer or
+// support can act on, and type drift needs a developer to fix code, not a
+// config change. Still worth catching, hence Debug rather than silence.
 //
 // Non-2xx responses are left alone. uhttp runs every DoOption before it
 // inspects the status and joins whatever they returned into the error it
@@ -227,7 +229,7 @@ func scimUserResponse(ctx context.Context, out *ScimUser) uhttp.DoOption {
 			// as "unconfirmed" (ScimUser.IsZero) and never as a half-populated
 			// confirmation.
 			*out = ScimUser{}
-			ctxzap.Extract(ctx).Warn(
+			ctxzap.Extract(ctx).Debug(
 				"baton-lucidchart: SCIM response body did not decode into a user; the write succeeded but is unconfirmed",
 				zap.Int("status_code", resp.StatusCode),
 				zap.Error(err),
