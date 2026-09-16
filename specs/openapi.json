@@ -273,7 +273,7 @@
       "get": {
         "operationId": "listFolderUserCollaborators",
         "summary": "List all user collaborators on a folder",
-        "description": "Source of the folder `has-user-access:<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` here becomes the grant principal's resource ID and `role` selects the entitlement; `created` is carried into grant metadata. Those are the parity-critical fields.",
+        "description": "Source of the folder `user/<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` here becomes the grant principal's resource ID and `role` selects the entitlement; `created` is carried into grant metadata. Those are the parity-critical fields.\n\nThe entitlement slug is the literal prefix `\"user/\"` (`folderHasUserAccessEntitlement`, `pkg/connector/folder.go:20`) concatenated with the role, so the full entitlement ID is `folder:<folderId>:user/<role>`.",
         "tags": ["folders"],
         "security": [{ "lucidApiKey": [] }],
         "x-client-location": "pkg/connector/client/query.go:98",
@@ -411,7 +411,7 @@
       "get": {
         "operationId": "listDocumentUserCollaborators",
         "summary": "List all user collaborators on a document",
-        "description": "Source of the document `has-user-access:<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` becomes the grant principal's resource ID, `role` selects the entitlement, `created` is carried into grant metadata.",
+        "description": "Source of the document `user/<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` becomes the grant principal's resource ID, `role` selects the entitlement, `created` is carried into grant metadata.\n\nThe entitlement slug is the literal prefix `\"user/\"` (`documentHasUserAccessEntitlement`, `pkg/connector/document.go:25`) concatenated with the role, so the full entitlement ID is `document:<documentId>:user/<role>`.",
         "tags": ["documents"],
         "security": [{ "lucidApiKey": [] }],
         "x-client-location": "pkg/connector/client/query.go:152",
@@ -782,12 +782,12 @@
       },
       "CollaboratorRole": {
         "type": "string",
-        "description": "A collaborator's access level. These five strings are the entitlement slugs the connector builds (`client.UserFolderRoles`) and the value carried in grant metadata.",
+        "description": "A collaborator's access level. These five strings are `client.UserFolderRoles`, the values carried in grant metadata. Each one is only the *suffix* of an entitlement slug, not the whole slug: the connector prefixes it with the literal `\"user/\"`, so the role `edit` yields the slug `user/edit` and the entitlement ID `folder:<folderId>:user/edit` (or `document:<documentId>:user/edit`).",
         "enum": ["owner", "editandshare", "edit", "comment", "view"]
       },
       "CollaboratorWriteRole": {
         "type": "string",
-        "description": "The roles a collaborator can be ASSIGNED. `owner` is absent deliberately: Lucid documents \"Collaborators cannot be given the role 'owner'\" and answers 400 for it.",
+        "description": "The roles a collaborator can be ASSIGNED. `owner` is absent deliberately: on the folder upsert Lucid documents \"Collaborators cannot be given the role 'owner'\" and answers 400 for it. The document upsert binds this same schema and likewise omits `owner` from its published enum, but its reference page documents no 400 — see PROVENANCE.md \"Unproven / blockers\".",
         "enum": ["editandshare", "edit", "comment", "view"]
       },
       "CollaboratorRoleRequest": {

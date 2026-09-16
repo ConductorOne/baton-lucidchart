@@ -67,8 +67,8 @@ Recorded rather than guessed, per the skill's "Do Not" section.
    be removed, "usernames" is not a real Lucid field.` It is modelled as an optional string with
    `x-unproven: true` because the connector reads it — dropping a declared field is not allowed —
    but it is almost certainly dead. Removing it is a Go change and out of scope here.
-2. **`PUT .../shares/users/{userId}` 409 — undocumented status.** Lucid documents only 400/403 on
-   both collaborator upserts. The connector's grant-idempotency path (CXH-2285) depends on a 409
+2. **`PUT .../shares/users/{userId}` 409 — undocumented status.** Lucid documents 400/403 on the
+   folder upsert and 403 only on the document upsert (see 4). The connector's grant-idempotency path (CXH-2285) depends on a 409
    whose body may carry the conflicting collaborator record, and the test suite injects exactly
    that. Modelled with the collaborator schema as its body and flagged in the description as
    undocumented. **Unconfirmed against Lucid's docs; confirmed only by this connector's own code
@@ -79,6 +79,22 @@ Recorded rather than guessed, per the skill's "Do Not" section.
    for documents. The document endpoint's direct-only behaviour was verified empirically against a
    live tenant under CXH-2285 and is recorded in the operation description as observed. If Lucid
    starts reporting inherited access there, the Grant short-circuit's safety argument breaks.
+4. **`upsertDocumentUserCollaborator` 400 for the `owner` role — asymmetric, unconfirmed.**
+   [reference/putfolderusercollaborator][pfuc] documents a 400 ("Bad Request when trying to add or
+   update a Folder User Collaborator to have the \"owner\" role") and states "Collaborators cannot
+   be given the role \"owner\"". [reference/putdocumentusercollaborators][pduc] documents **only**
+   200/201/403 — no 400, and no mention of the `owner` restriction anywhere on the page
+   (re-checked 2026-09-15).
+
+   The asymmetry matters because the document upsert can in fact be asked for `owner`:
+   `documentBuilder.Entitlements` (`pkg/connector/document.go:93`) builds document entitlements
+   from `client.UserFolderRoles`, which *includes* `owner`, so a `document:<id>:user/owner` grant
+   is emittable and would send `{"role":"owner"}`. Both upserts bind the same
+   `CollaboratorRoleRequest` → `CollaboratorWriteRole`, and the document page's own published role
+   enum omits `owner` too, so the same validation very likely applies — but "likely" is not
+   documented. **No 400 was added to `upsertDocumentUserCollaborator` in the spec**; inventing a
+   response the vendor page does not publish is exactly what the skill's "Do Not" section forbids.
+   Resolve by observing a real `owner` upsert against a live tenant, or by Lucid publishing it.
 
 ## Divergences worth knowing (spec records the connector's behaviour, not the doc's)
 
