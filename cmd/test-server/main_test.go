@@ -37,7 +37,7 @@ func newCollaboratorTestServer(t *testing.T) *client.LucidchartClient {
 // here, an inherited-only user would be reported as already granted while holding
 // no direct share, and the grant would silently never be created.
 //
-// The claim was verified against live Lucid under CXH-2285 but had no mock
+// The claim was verified against live Lucid but had no mock
 // coverage, so nothing would catch a regression in that assumption. These tests
 // pin it as a contract the mock enforces.
 func TestDocumentUserCollaboratorIsDirectOnly(t *testing.T) {

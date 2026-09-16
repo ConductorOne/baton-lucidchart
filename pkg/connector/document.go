@@ -174,7 +174,7 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 			// tenants without the GET — stays at Debug: nobody can act on it, and it
 			// can recur on every grant.
 			if client.IsPermissionDeniedError(err) {
-				l.Warn("baton-lucidchart: document collaborator pre-check GET denied — check OAuth scope; falling through to upsert",
+				l.Warn("baton-lucidchart: document collaborator pre-check GET denied — the Lucid API key may lack access to this document, or the document no longer exists; falling through to upsert",
 					zap.String("document_id", documentId),
 					zap.String("user_id", userId),
 					zap.Error(err),

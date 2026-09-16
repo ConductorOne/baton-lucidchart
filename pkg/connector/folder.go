@@ -159,7 +159,7 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// tenants without the GET — stays at Debug: nobody can act on it, and it
 			// can recur on every grant.
 			if client.IsPermissionDeniedError(err) {
-				l.Warn("baton-lucidchart: folder collaborator pre-check GET denied — check OAuth scope; falling through to upsert",
+				l.Warn("baton-lucidchart: folder collaborator pre-check GET denied — the Lucid API key may lack access to this folder, or the folder no longer exists; falling through to upsert",
 					zap.String("folder_id", folderId),
 					zap.String("user_id", userId),
 					zap.Error(err),

@@ -42,7 +42,7 @@
 //     are direct-only: a user who reaches the container only through an ancestor
 //     404s there. Published for folders (reference/getfolderusercollaborators);
 //     for documents it is the one behaviour here taken from observation rather
-//     than documentation, verified live under CXH-2285.
+//     than documentation, verified live.
 //   - Errors use Lucid's envelope {code, message, requestId} (reference-rest).
 //   - GET /users paginates via an opaque pageToken carried in the Link header,
 //     200 records per page (reference-rest).
@@ -797,7 +797,7 @@ func newMux(s *store, cfg config) *http.ServeMux {
 	//    will not be shown through this API" (reference/getfolderusercollaborators).
 	//
 	// For documents Lucid publishes no such sentence. The behaviour was verified
-	// empirically against a live tenant under CXH-2285 — a user shared only on the
+	// empirically against a live tenant — a user shared only on the
 	// parent folder stays 404 here — and is modelled below so the connector's
 	// Grant short-circuit is tested against the contract it actually relies on,
 	// rather than against nothing. This is the one place this mock encodes

@@ -258,7 +258,7 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 	})
 }
 
-// CXH-1919 regression: the upsert-success path used to pass the user principal
+// Regression: the upsert-success path used to pass the user principal
 // as NewGrant's first argument, which is what NewEntitlementID is keyed on. That
 // made the same user+role on two different documents produce one identical
 // entitlement ID (user:200:user/comment), so the second grant overwrote the
