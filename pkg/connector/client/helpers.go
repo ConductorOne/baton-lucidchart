@@ -32,8 +32,9 @@ func IsUnauthenticatedError(err error) bool {
 // can never be deleted — account owner, default document owner); folder/document
 // Grant() treats it as an idempotent "already granted" no-op only when the
 // conflicting record's role matches what was requested (or the record carries no
-// role), and surfaces the error otherwise. The classifier only reports the
-// status; the caller decides.
+// role, unless the pre-check already confirmed the user holds no share, in which
+// case a decoded matching role is required), and surfaces the error otherwise.
+// The classifier only reports the status; the caller decides.
 func IsConflictError(err error) bool {
 	return status.Code(err) == codes.AlreadyExists
 }

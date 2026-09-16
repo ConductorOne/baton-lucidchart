@@ -161,9 +161,13 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		// Best-effort: any read error falls through to the authoritative upsert.
 		//
 		// preCheckSaysAbsent separates the two things a nil `current` can mean: a
-		// 404 (Lucid positively answered "this user holds no direct share") versus
-		// an ambiguous failure — 403, 5xx, a timeout — after which nothing at all
-		// is known. The 409 guard below is stricter in the first case.
+		// 404 (Lucid answering "this user holds no direct share" — though a tenant
+		// without the GET route returns the same status, so it is not unconditional
+		// proof) versus an ambiguous failure — 403, 5xx, a timeout — after which
+		// nothing at all is known. The 409 guard below is stricter in the first
+		// case. The route caveat needs no handling today: Lucid does not 409 on the
+		// upsert, and if it ever did, the strict path fails safe — it surfaces the
+		// error instead of fabricating a grant.
 		var preCheckSaysAbsent bool
 		current, err := o.client.GetDocumentUserCollaborator(ctx, documentId, userId)
 		if err != nil {
