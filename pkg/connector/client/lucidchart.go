@@ -236,12 +236,16 @@ func (c *LucidchartClient) ContentScimConfigured() bool {
 	return c.contentScimToken != ""
 }
 
+// newRequest builds a request for the given method and path, with the auth,
+// versioning and Accept headers every Lucid call needs. authType selects the
+// credential to authenticate with, and a non-nil body is sent as JSON.
 func (c *LucidchartClient) newRequest(
 	ctx context.Context,
 	method string,
 	path string,
 	body interface{},
 	authType LucidAuthType,
+	extraOptions ...uhttp.RequestOption,
 ) (*http.Request, error) {
 	urlAddress, err := url.Parse(c.baseURL)
 	if err != nil {
@@ -272,6 +276,8 @@ func (c *LucidchartClient) newRequest(
 	if body != nil {
 		options = append(options, uhttp.WithJSONBody(body))
 	}
+
+	options = append(options, extraOptions...)
 
 	req, err := c.client.NewRequest(
 		ctx,

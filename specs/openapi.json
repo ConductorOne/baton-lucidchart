@@ -1,0 +1,937 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Lucid API — baton-lucidchart connector surface",
+    "version": "1.0.0",
+    "summary": "The subset of Lucid's REST, OAuth2 and SCIM 2.0 APIs that baton-lucidchart calls.",
+    "description": "This document describes **only** the endpoints `baton-lucidchart` issues requests to, and **only** the fields its Go types declare. It is not a description of Lucid's whole API.\n\nScope is proven by `pkg/connector/client/*.go` (which endpoints and which fields the connector depends on); shapes, enums and status codes are proven by Lucid's published reference pages. Per-operation provenance is recorded in `x-client-location`, `x-source` and `x-accessed`, and summarised in `specs/PROVENANCE.md`.\n\nTwo hosts are covered and they are not interchangeable:\n\n- the REST API (`https://api.lucid.co`, overridable with `--base-url`), and\n- the SCIM 2.0 surface (`https://users.lucid.app/scim/v2`, overridable with `--scim-base-url`).\n\nSCIM path items carry their own `servers` override; everything else uses the REST server.\n\n**Paths are written as the client constructs them**, not as Lucid's reference pages render them. Lucid versions the REST API with the `Lucid-Api-Version: 1` request header (`reference-rest`), and most reference pages nonetheless display a `/v1` path prefix. The connector sends the header on every REST request and uses unversioned paths everywhere except `GET /v1/users/{userId}` and `POST /v1/transferUserContent`. That inconsistency is the connector's, and it is reproduced here deliberately so this file describes the requests that actually go on the wire. See `specs/PROVENANCE.md` for the full note.\n\n**Pagination** is Link-header based and has no OpenAPI representation beyond the request parameter and the response header: the connector sends an opaque `pageToken` query parameter and reads the next one out of the `Link` response header (`rel=\"next\"`, `pageToken` query value), terminating when no `Link` header is present. Both halves are modelled — `pageToken` as a parameter and `Link` as a response header — but the cursor relationship between them is not expressible and is documented in prose only.",
+    "contact": {
+      "name": "ConductorOne",
+      "url": "https://github.com/conductorone/baton-lucidchart"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.lucid.co",
+      "description": "Lucid REST API. Default; overridable with --base-url (used by cmd/test-server). The FedRAMP/GovSuite host is https://api.lucidgov.app (client.LucidchartApiFedRampUrl)."
+    }
+  ],
+  "tags": [
+    { "name": "users", "description": "REST user read and account provisioning." },
+    { "name": "folders", "description": "Folder contents and folder user collaborators." },
+    { "name": "documents", "description": "Document user collaborators." },
+    { "name": "oauth2", "description": "OAuth2 token acquisition." },
+    { "name": "scim", "description": "SCIM 2.0 user lifecycle (separate host and bearer token)." }
+  ],
+  "paths": {
+    "/oauth2/token": {
+      "post": {
+        "operationId": "refreshAccessToken",
+        "summary": "Exchange a refresh token for an access token",
+        "description": "Issued by `golang.org/x/oauth2` on behalf of the connector, not by the client layer — the token source is built in `pkg/connector/connector.go` and the token URL is derived from `--base-url` so a mock server receives the grant too.\n\n**Divergence from the published contract.** Lucid documents this endpoint at `POST /v1/oauth2/token` with an `application/json` body (`reference/createorrefreshaccesstoken`). `golang.org/x/oauth2` sends `application/x-www-form-urlencoded` to the unversioned `/oauth2/token`, and may send the client credentials via HTTP Basic auth instead of body fields. This document records what the connector sends; see `specs/PROVENANCE.md`.\n\nOnly the four response fields `oauth2.Token` consumes are modelled. Lucid documents more (`expires`, `client_id`, `scopes`, `user_id`, `account_id`); the connector never reads them.",
+        "tags": ["oauth2"],
+        "security": [],
+        "x-client-location": "pkg/connector/connector.go:125",
+        "x-source": "https://lucid.readme.io/reference/createorrefreshaccesstoken",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:555); request encoding from golang.org/x/oauth2, not from the docs",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "$ref": "#/components/schemas/TokenRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK. A new access token.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TokenResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request. Missing or unsupported `grant_type`, or missing credentials. Body shape is the OAuth2 error object, not Lucid's REST error envelope; not modelled because Lucid does not publish it.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": {
+            "description": "Unauthorized. Invalid client credentials.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "List users on the account",
+        "description": "Paginated. The connector sends `pageToken` only — never `pageSize` — so Lucid's 200-record default applies (`reference-rest`). The response is a bare JSON array, not an envelope; the next cursor arrives in the `Link` header.",
+        "tags": ["users"],
+        "security": [{ "lucidOAuth2": [] }],
+        "x-client-location": "pkg/connector/client/query.go:42",
+        "x-source": "https://lucid.readme.io/reference/listusers",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:607)",
+        "parameters": [{ "$ref": "#/components/parameters/PageToken" }],
+        "responses": {
+          "200": {
+            "description": "OK. A page of User resources.",
+            "headers": { "Link": { "$ref": "#/components/headers/Link" } },
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/User" } }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createUser",
+        "summary": "Create a user on the account",
+        "description": "Backs the connector's `CreateAccount` capability. Lucid documents this endpoint at `POST /v1/users`; the connector posts to the unversioned `/users` with the `Lucid-Api-Version: 1` header.",
+        "tags": ["users"],
+        "security": [{ "lucidOAuth2": [] }],
+        "x-client-location": "pkg/connector/client/user_management.go:42",
+        "x-source": "https://lucid.readme.io/reference/createuser",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:676)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserCreatePayload" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created. The new User resource.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "400": {
+            "description": "Bad Request. An input field is invalid or a required field is missing.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "403": {
+            "description": "Forbidden. The app lacks permission to create users on the account.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "409": {
+            "description": "Conflict. A user with the same email or username already exists. The connector maps this to `codes.AlreadyExists` (client.IsConflictError).",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/v1/users/{userId}": {
+      "get": {
+        "operationId": "getUser",
+        "summary": "Get one user by REST user ID",
+        "description": "Called before `transferUserContent` to resolve a user's email address, which that endpoint requires instead of an ID.\n\nLucid returns **403, not 404**, for a user that does not exist: \"if the user does not belong to the authenticated account or if the user does not exist\". The connector therefore cannot treat 403 as \"gone\" and disambiguates through SCIM `GET /Users/{id}` instead (see `client.IsPermissionDeniedError`, `pkg/connector/client/helpers.go:19`).",
+        "tags": ["users"],
+        "security": [{ "lucidOAuth2": [] }],
+        "x-client-location": "pkg/connector/client/query.go:29",
+        "x-source": "https://lucid.readme.io/reference/getuser",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:652)",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "description": "ID of the user to be retrieved. Documented as a number; the connector formats it from a string.",
+            "schema": { "type": "string" },
+            "example": "204"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. The User resource.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "403": {
+            "description": "Forbidden. The user does not belong to the authenticated account **or does not exist** — the two cases are indistinguishable here.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/v1/transferUserContent": {
+      "post": {
+        "operationId": "transferUserContent",
+        "summary": "Transfer all documents owned by one user to another",
+        "description": "The precondition for deleting a user whose content must be retained. Both fields are **email addresses**, not user IDs — passing an ID yields 400.\n\nRate limited to 30 requests per 5 seconds per account; a 429 carries `Retry-After`.",
+        "tags": ["users"],
+        "security": [{ "lucidOAuth2": [] }],
+        "x-client-location": "pkg/connector/client/user_management.go:135",
+        "x-source": "https://lucid.readme.io/reference/transferusercontent",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:724)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TransferContentPayload" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "No Content. The transfer succeeded. No response body." },
+          "400": {
+            "description": "Bad Request. `fromUser` and `toUser` name the same user.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "403": {
+            "description": "Forbidden. One of the users does not exist or is not on the authenticated account.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "429": {
+            "description": "Too Many Requests. 30 requests per 5 seconds per account. Carries `Retry-After` in seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/folders/root/contents": {
+      "get": {
+        "operationId": "listRootFolderContents",
+        "summary": "List the contents of the account root folder",
+        "description": "The entry point of the folder/document sync tree. Lucid also reaches this through `GET /folders/{id}/contents` with the literal `id=root`; the connector holds it as a separate path constant (`RootFolderContentPath`) and it is modelled as a separate path here for that reason.\n\nPaginated; the connector sends `pageToken` only.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:60",
+        "x-source": "https://lucid.readme.io/reference/listrootfoldercontents",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:788, empty array only)",
+        "parameters": [{ "$ref": "#/components/parameters/PageToken" }],
+        "responses": {
+          "200": {
+            "description": "OK. A page of FolderContent resources.",
+            "headers": { "Link": { "$ref": "#/components/headers/Link" } },
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FolderContent" } }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, or the folder is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/folders/{folderId}/contents": {
+      "get": {
+        "operationId": "listFolderContents",
+        "summary": "List the contents of a folder",
+        "description": "Walked recursively during sync to discover child folders and documents. Paginated; the connector sends `pageToken` only.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:78",
+        "x-source": "https://lucid.readme.io/reference/listfoldercontents",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:789, empty array only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/FolderId" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. A page of FolderContent resources.",
+            "headers": { "Link": { "$ref": "#/components/headers/Link" } },
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FolderContent" } }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, or the folder is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/folders/{folderId}/shares/users": {
+      "get": {
+        "operationId": "listFolderUserCollaborators",
+        "summary": "List all user collaborators on a folder",
+        "description": "Source of the folder `user/<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` here becomes the grant principal's resource ID and `role` selects the entitlement; `created` is carried into grant metadata. Those are the parity-critical fields.\n\nThe entitlement slug is the literal prefix `\"user/\"` (`folderHasUserAccessEntitlement`, `pkg/connector/folder.go:20`) concatenated with the role, so the full entitlement ID is `folder:<folderId>:user/<role>`.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:98",
+        "x-source": "https://lucid.readme.io/reference/listfolderusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs only",
+        "parameters": [
+          { "$ref": "#/components/parameters/FolderId" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. A page of FolderUserCollaborator resources.",
+            "headers": { "Link": { "$ref": "#/components/headers/Link" } },
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FolderUserCollaboration" } }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, or the folder is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/folders/{folderId}/shares/users/{userId}": {
+      "get": {
+        "operationId": "getFolderUserCollaborator",
+        "summary": "Get one user's collaborator role on a folder",
+        "description": "The read-before-write pre-check in `folderBuilder.Grant`. Sent with `uhttp.WithNoCache()` so the role it compares against is current — uhttp's GET cache (1h TTL) is not invalidated by the PUT/DELETE on this same path.\n\n**Direct-only.** Lucid publishes it: \"A user having access to a folder through one of the folder's ancestors will not be shown through this API.\" A role returned here is therefore always a direct share, which is what makes the Grant no-op short-circuit safe. A user with inherited-only access 404s.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:129",
+        "x-source": "https://lucid.readme.io/reference/getfolderusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:816, pkg/connector/collaborator_test.go:137)",
+        "parameters": [
+          { "$ref": "#/components/parameters/FolderId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. The FolderUserCollaborator record for this direct share.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FolderUserCollaboration" } } }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, or the folder is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "404": {
+            "description": "Not Found. The user is not a **direct** collaborator on the folder. Mapped to `codes.NotFound`; the caller treats this read as best-effort and falls through to the upsert.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      },
+      "put": {
+        "operationId": "upsertFolderUserCollaborator",
+        "summary": "Create or update a user's collaborator role on a folder",
+        "description": "Backs `folderBuilder.Grant`. Lucid answers 200 when it updates an existing record and 201 when it creates one; the connector does not distinguish them.\n\nThe undocumented 409 below is load-bearing for grant idempotency — see its description.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/mutate.go:14",
+        "x-source": "https://lucid.readme.io/reference/putfolderusercollaborator",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (pkg/connector/collaborator_test.go:156); the 409 is client/fixture evidence only",
+        "parameters": [
+          { "$ref": "#/components/parameters/FolderId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CollaboratorRoleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK. An existing collaborator record was updated.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FolderUserCollaboration" } } }
+          },
+          "201": {
+            "description": "Created. A new collaborator record was created.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FolderUserCollaboration" } } }
+          },
+          "400": {
+            "description": "Bad Request. Raised when the requested role is `owner` — collaborators cannot be given that role.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, or the folder is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "409": {
+            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it and the test suite injects it. The body may carry the conflicting FolderUserCollaborator record, which `Grant` decodes before the status check: a 409 is an idempotent `GrantAlreadyExists` only when the conflicting record's role matches what was requested (or the record carries no role and the pre-check did not already confirm the user holds no share), and is surfaced as an error otherwise.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FolderUserCollaboration" } } }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFolderUserCollaborator",
+        "summary": "Remove a user's collaborator role from a folder",
+        "description": "Backs `folderBuilder.Revoke`. A 404 is treated as success (`GrantAlreadyRevoked`), not an error.",
+        "tags": ["folders"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/mutate.go:41",
+        "x-source": "https://lucid.readme.io/reference/deletefolderusercollaborator",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (pkg/connector/collaborator_test.go:189)",
+        "parameters": [
+          { "$ref": "#/components/parameters/FolderId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "responses": {
+          "204": { "description": "No Content. The collaborator was removed. No response body." },
+          "400": {
+            "description": "Bad Request. Removing the user would leave a project folder without an owner.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the folder, the folder is deleted or does not exist, or the target is the folder owner.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "404": {
+            "description": "Not Found. The user is not a direct collaborator. Mapped to `codes.NotFound`; `Revoke` reports this as already revoked.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/shares/users": {
+      "get": {
+        "operationId": "listDocumentUserCollaborators",
+        "summary": "List all user collaborators on a document",
+        "description": "Source of the document `user/<role>` grants. Paginated; the connector sends `pageToken` only.\n\n`userId` becomes the grant principal's resource ID, `role` selects the entitlement, `created` is carried into grant metadata.\n\nThe entitlement slug is the literal prefix `\"user/\"` (`documentHasUserAccessEntitlement`, `pkg/connector/document.go:25`) concatenated with the role, so the full entitlement ID is `document:<documentId>:user/<role>`.",
+        "tags": ["documents"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:152",
+        "x-source": "https://lucid.readme.io/reference/listdocumentusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs only",
+        "parameters": [
+          { "$ref": "#/components/parameters/DocumentId" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. A page of DocumentUserCollaborator resources.",
+            "headers": { "Link": { "$ref": "#/components/headers/Link" } },
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentUserCollaboration" } }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the document, or the document is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/shares/users/{userId}": {
+      "get": {
+        "operationId": "getDocumentUserCollaborator",
+        "summary": "Get one user's collaborator role on a document",
+        "description": "The read-before-write pre-check in `documentBuilder.Grant`. Sent with `uhttp.WithNoCache()` for the same reason as the folder equivalent.\n\n**Direct-only, but not on Lucid's word.** Lucid publishes the ancestor-access caveat for folders and says nothing about it here. The behaviour was verified empirically against a live tenant: a user shared only on the parent folder stays 404 at this endpoint and does not appear in `listDocumentUserCollaborators`. That is what makes the Grant no-op short-circuit safe. If Lucid ever starts reporting inherited access here, this assumption breaks.",
+        "tags": ["documents"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/query.go:185",
+        "x-source": "https://lucid.readme.io/reference/getdocumentusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:849, pkg/connector/collaborator_test.go:137); the direct-only property is observed, not documented",
+        "parameters": [
+          { "$ref": "#/components/parameters/DocumentId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. The DocumentUserCollaborator record for this direct share.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUserCollaboration" } } }
+          },
+          "403": {
+            "description": "Forbidden. The app lacks permission to the document, or the document is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "404": {
+            "description": "Not Found. The user is not a **direct** collaborator on the document (inherited parent-folder access also 404s here). Mapped to `codes.NotFound`; the caller treats this read as best-effort and falls through to the upsert.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      },
+      "put": {
+        "operationId": "upsertDocumentUserCollaborator",
+        "summary": "Create or update a user's collaborator role on a document",
+        "description": "Backs `documentBuilder.Grant`. 200 on update, 201 on create; the connector does not distinguish them. The undocumented 409 is handled identically to the folder case.",
+        "tags": ["documents"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/mutate.go:60",
+        "x-source": "https://lucid.readme.io/reference/putdocumentusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (pkg/connector/collaborator_test.go:156); the 409 is client/fixture evidence only",
+        "parameters": [
+          { "$ref": "#/components/parameters/DocumentId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CollaboratorRoleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK. An existing collaborator record was updated.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUserCollaboration" } } }
+          },
+          "201": {
+            "description": "Created. A new collaborator record was created.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUserCollaboration" } } }
+          },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the document, or the document is deleted or does not exist.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "409": {
+            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it and the test suite injects it. The body may carry the conflicting DocumentUserCollaborator record; the same role-match rule as the folder upsert decides whether it is an idempotent `GrantAlreadyExists` or a surfaced error.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUserCollaboration" } } }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteDocumentUserCollaborator",
+        "summary": "Remove a user's collaborator role from a document",
+        "description": "Backs `documentBuilder.Revoke`. A 404 is treated as success (`GrantAlreadyRevoked`), not an error.",
+        "tags": ["documents"],
+        "security": [{ "lucidApiKey": [] }],
+        "x-client-location": "pkg/connector/client/mutate.go:84",
+        "x-source": "https://lucid.readme.io/reference/deletedocumentusercollaborators",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (pkg/connector/collaborator_test.go:189)",
+        "parameters": [
+          { "$ref": "#/components/parameters/DocumentId" },
+          { "$ref": "#/components/parameters/CollaboratorUserId" }
+        ],
+        "responses": {
+          "204": { "description": "No Content. The collaborator was removed. No response body." },
+          "403": {
+            "description": "Forbidden. The token lacks permission to the document, the document is deleted or does not exist, or the target is the document owner.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          },
+          "404": {
+            "description": "Not Found. The user is not a direct collaborator. Mapped to `codes.NotFound`; `Revoke` reports this as already revoked.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
+          }
+        }
+      }
+    },
+    "/Users/{scimUserId}": {
+      "servers": [
+        {
+          "url": "https://users.lucid.app/scim/v2",
+          "description": "Lucid SCIM 2.0. Default; overridable with --scim-base-url, which a FedRAMP/GovSuite tenant must set to its account-specific hostname (Lucid generates these per account and publishes no list). Shared by BOTH SCIM integrations — 'SCIM for admin management' and 'SCIM for content access' — which are told apart by the bearer token alone."
+        }
+      ],
+      "parameters": [{ "$ref": "#/components/parameters/ScimUserId" }],
+      "get": {
+        "operationId": "scimGetUser",
+        "summary": "Get a SCIM user (existence probe)",
+        "description": "The connector calls this only to answer \"does this user still exist?\" (`ScimUserExists`) — it discards the body and reads the status. SCIM 404s specifically for absence, which is what disambiguates REST's overloaded 403 on `GET /v1/users/{userId}`. A non-nil error means \"unknown\" and is never treated as \"gone\".\n\nAlways sent with the **admin-management** token.",
+        "tags": ["scim"],
+        "security": [{ "lucidScimToken": [] }],
+        "x-client-location": "pkg/connector/client/scim.go:275",
+        "x-source": "https://lucid.readme.io/reference/getuser-1",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:904)",
+        "responses": {
+          "200": {
+            "description": "OK. The SCIM User resource. The connector reads only the status code.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScimUser" } } }
+          },
+          "401": { "description": "Unauthorized. The bearer token is invalid. Error body shape is not published by Lucid." },
+          "404": { "description": "Not Found. The user does not exist. Mapped to `codes.NotFound`; reported as `exists=false`." }
+        }
+      },
+      "patch": {
+        "operationId": "scimPatchUser",
+        "summary": "Modify a SCIM user (activate/deactivate, profile update)",
+        "description": "**Two client methods share this operation**, differing only in the operations they put in the body:\n\n- `SetUserActive` (`pkg/connector/client/scim.go:247`) — a single `replace` on `active`; backs the enable_user/disable_user actions.\n- `UpdateUser` (`pkg/connector/client/user_management.go:74`) — `replace` on any of `name.givenName`, `name.familyName`, `emails`, `userName`, `roles`; Lucid has no REST modify-user endpoint, so all profile changes go through here.\n\nLucid documents `Content-Type: application/json` and a `schemas` value of `urn:ietf:params:scim:schemas:core:2.0:User` rather than RFC 7644's `application/scim+json` and PatchOp URN. The connector follows Lucid's published form, not the RFC.\n\nLucid documents a 200 with the updated User body. The client additionally tolerates a bodyless 204 and a non-JSON or undecodable body, leaving its `ScimUser` zero-valued (`IsZero`) and reporting the write as applied-but-unconfirmed — the 2xx is what says Lucid applied it.",
+        "tags": ["scim"],
+        "security": [{ "lucidScimToken": [] }],
+        "x-client-location": "pkg/connector/client/scim.go:247, pkg/connector/client/user_management.go:74",
+        "x-source": "https://lucid.readme.io/reference/modifyuserpatch",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:929, pkg/connector/client/scim_test.go:49)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ScimPatchOp" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK. The modified SCIM User resource — Lucid's confirmed post-write state, which is not necessarily what was requested.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScimUser" } } }
+          },
+          "204": {
+            "description": "No Content. Not documented by Lucid; handled by the client because a SCIM server is entitled to answer a PATCH this way. The write is applied but unconfirmed."
+          },
+          "400": { "description": "Bad Request. Syntax error in the PatchOp body." },
+          "401": { "description": "Unauthorized. The bearer token is invalid." },
+          "404": { "description": "Not Found. The user does not exist." },
+          "409": { "description": "Conflict. Duplicate username or email." }
+        }
+      },
+      "delete": {
+        "operationId": "scimDeleteUser",
+        "summary": "Permanently delete a SCIM user",
+        "description": "A hard delete. Callers transfer owned content first when it must be retained (see `transferUserContent`).\n\n**Two client methods share this operation**, differing only in the bearer token, which is what routes the call to one integration or the other:\n\n- `ScimDeleteUser` (`pkg/connector/client/scim.go:298`) — the admin-management token.\n- `ScimDeleteUserContentAccess` (`pkg/connector/client/scim.go:310`) — the content-access token; optional, and skipped when that token is not configured.\n\nThe 409 is terminal for this connector: a user Lucid refuses to delete (account owner, default document owner) can never be deleted, so it is not retried.",
+        "tags": ["scim"],
+        "security": [{ "lucidScimToken": [] }, { "lucidContentAccessScimToken": [] }],
+        "x-client-location": "pkg/connector/client/scim.go:298, pkg/connector/client/scim.go:310",
+        "x-source": "https://lucid.readme.io/reference/deleteuser",
+        "x-accessed": "2026-09-15",
+        "x-evidence": "docs + fixture (cmd/test-server/main.go:1090)",
+        "responses": {
+          "204": { "description": "No Content. The user was deleted. No response body." },
+          "400": { "description": "Bad Request. An unexpected error prevented deletion." },
+          "401": { "description": "Unauthorized. The bearer token is invalid." },
+          "404": { "description": "Not Found. The user does not exist." },
+          "409": { "description": "Conflict. The user cannot be deleted (e.g. account owner or default document owner). Mapped to `codes.AlreadyExists`; treated as terminal." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "lucidApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The Lucid REST API key (`--lucid-api-key`), sent as a bearer token. Used for every folder and document operation (`client.LucidAuthTypeApiKey`). Required grants per operation are noted on Lucid's reference pages (FolderReadonly, FolderEdit, DocumentEdit, ...)."
+      },
+      "lucidOAuth2": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An OAuth2 access token (`client.LucidAuthTypeOAuth2`), obtained via `refreshAccessToken` or supplied by the platform token source. Used for the user read and account-provisioning operations."
+      },
+      "lucidScimToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The 'SCIM for admin management' bearer token (`--lucid-scim-token`). Requires Lucid Enterprise tier. Every SCIM operation the connector performs requires this token; without it the SCIM surface is unavailable."
+      },
+      "lucidContentAccessScimToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The 'SCIM for content access' (teams) bearer token (`--lucid-content-access-scim-token`). A separate, optional integration on the SAME base URL and SAME /Users/{id} path — only the token distinguishes it. Used for DELETE only."
+      }
+    },
+    "parameters": {
+      "PageToken": {
+        "name": "pageToken",
+        "in": "query",
+        "required": false,
+        "description": "Opaque pagination cursor. The connector never constructs one: it reads it out of the previous response's `Link` header (`rel=\"next\"`) and echoes it back. Omitted on the first request. The connector never sends `pageSize`, so Lucid's 200-record default applies.",
+        "schema": { "type": "string" },
+        "example": "eyJvIjoiMSJ9"
+      },
+      "FolderId": {
+        "name": "folderId",
+        "in": "path",
+        "required": true,
+        "description": "ID of the folder. Numeric in Lucid's model; the connector carries it as a string.",
+        "schema": { "type": "string" },
+        "example": "9001"
+      },
+      "DocumentId": {
+        "name": "documentId",
+        "in": "path",
+        "required": true,
+        "description": "ID of the document. An opaque string (UUID in Lucid's docs).",
+        "schema": { "type": "string" },
+        "example": "110808fd-4553-4316-bccf-4f25ff59a532"
+      },
+      "CollaboratorUserId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "description": "ID of the user whose collaborator role is being read, set, or removed. Documented as a number; the connector carries it as a string.",
+        "schema": { "type": "string" },
+        "example": "102"
+      },
+      "ScimUserId": {
+        "name": "scimUserId",
+        "in": "path",
+        "required": true,
+        "description": "SCIM resource ID. NOT the bare REST user ID: Lucid prefixes it with `lucid-`, so REST user 101 is SCIM resource `lucid-101`. The client applies the prefix internally (`scimResourceID`).",
+        "schema": { "type": "string", "pattern": "^lucid-.+$" },
+        "example": "lucid-101"
+      }
+    },
+    "headers": {
+      "Link": {
+        "description": "Pagination link header. Present only when a further page exists; its absence terminates the connector's paging loop. Format: `<https://api.lucid.co/users?pageSize=200&pageToken=...>; rel=\"next\"`. The connector parses the URL out of the first `;`-delimited part and reads its `pageToken` query value (`extractPageToken`).",
+        "schema": { "type": "string" },
+        "example": "<https://api.lucid.co/users?pageSize=1&pageToken=eyJvIjoiMSJ9>; rel=\"next\""
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "description": "Lucid's REST User model, narrowed to the fields `client.User` declares. Lucid also returns `avatar`; the connector does not read it, so it is not modelled.",
+        "properties": {
+          "accountId": { "type": "integer", "description": "The unique ID for the user's account." },
+          "email": { "type": "string", "format": "email", "description": "The user's email. Used as the resource's login and email trait, and as the `fromUser` for transferUserContent." },
+          "name": { "type": "string", "description": "The user's full name." },
+          "userId": { "type": "integer", "description": "The unique ID for the user. This is the connector's user resource ID and ExternalId — parity-critical." },
+          "username": { "type": "string", "description": "The user's username." },
+          "usernames": {
+            "type": "string",
+            "description": "UNPROVEN. Declared by `client.User` and copied into the resource profile, but absent from every Lucid reference page consulted and from the test-server fixture. Retained because the connector reads it; see specs/PROVENANCE.md.",
+            "x-unproven": true
+          },
+          "enabled": { "type": "boolean", "description": "Whether the user can authenticate to Lucid. Decoded into a `*bool` so that an absent value is distinguishable from `false` — the connector only marks an account disabled on an explicit `false`." },
+          "roles": {
+            "type": "array",
+            "description": "Administrative roles assigned to the user.",
+            "items": { "$ref": "#/components/schemas/UserRole" }
+          }
+        }
+      },
+      "UserRole": {
+        "type": "string",
+        "description": "Lucid's REST administrative role enum (kebab-case). Distinct from the SCIM role enum — Lucid publishes no crosswalk between them; the connector maintains one in `pkg/connector/users.go`.",
+        "enum": [
+          "account-owner",
+          "billing-admin",
+          "enterprise-shield-admin",
+          "developer",
+          "document-admin",
+          "group-admin",
+          "organizational-group-admin",
+          "team-admin",
+          "team-manager",
+          "template-admin",
+          "unknown-role"
+        ]
+      },
+      "UserCreatePayload": {
+        "type": "object",
+        "description": "Request body for createUser (`client.UserCreatePayload`).",
+        "required": ["firstName", "lastName", "email"],
+        "properties": {
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "username": { "type": "string", "description": "Optional; Lucid defaults it to the email address." },
+          "password": { "type": "string", "description": "Optional. Sent only when the platform supplied one; never logged." },
+          "roles": {
+            "type": "array",
+            "description": "Optional. `account-owner` and `unknown-role` are in Lucid's enum but are not roles the connector offers at creation.",
+            "items": { "$ref": "#/components/schemas/UserRole" }
+          }
+        }
+      },
+      "TransferContentPayload": {
+        "type": "object",
+        "description": "Request body for transferUserContent (`client.TransferContentPayload`). Both values are EMAIL ADDRESSES, not user IDs.",
+        "required": ["fromUser", "toUser"],
+        "properties": {
+          "fromUser": { "type": "string", "format": "email", "description": "Email of the user whose content will be transferred." },
+          "toUser": { "type": "string", "format": "email", "description": "Email of the user who will receive the content." }
+        }
+      },
+      "FolderContent": {
+        "type": "object",
+        "description": "One item inside a folder — either a child folder or a document. `client.FolderContent`.",
+        "required": ["id", "type", "name", "isShortcut"],
+        "properties": {
+          "id": {
+            "description": "The item's ID. A NUMBER for folders and a UUID STRING for documents — Lucid's docs state both forms and the connector decodes it into an `interface{}`, normalising with `FolderContent.ID()`. This is the folder/document resource ID, so its string form is parity-critical (never render it via `%v`, which would produce scientific notation for large numeric IDs).",
+            "oneOf": [
+              { "type": "string", "format": "uuid" },
+              { "type": "number" }
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Which kind of item this is. The connector filters on the exact strings `folder` and `document`.",
+            "enum": ["folder", "document"]
+          },
+          "name": { "type": "string", "description": "Name of the folder or document; becomes the resource display name." },
+          "isShortcut": { "type": "boolean", "description": "Whether the item is a shortcut. When `--exclude-shortcuts` is set, the connector skips items with this true." },
+          "product": {
+            "type": "string",
+            "description": "Which Lucid product a document belongs to. Documents only.",
+            "enum": ["lucidchart", "lucidspark", "lucidscale"]
+          }
+        }
+      },
+      "CollaboratorRole": {
+        "type": "string",
+        "description": "A collaborator's access level. These five strings are `client.UserFolderRoles`, the values carried in grant metadata. Each one is only the *suffix* of an entitlement slug, not the whole slug: the connector prefixes it with the literal `\"user/\"`, so the role `edit` yields the slug `user/edit` and the entitlement ID `folder:<folderId>:user/edit` (or `document:<documentId>:user/edit`).",
+        "enum": ["owner", "editandshare", "edit", "comment", "view"]
+      },
+      "CollaboratorWriteRole": {
+        "type": "string",
+        "description": "The roles a collaborator can be ASSIGNED. `owner` is absent deliberately: on the folder upsert Lucid documents \"Collaborators cannot be given the role 'owner'\" and answers 400 for it. The document upsert binds this same schema and likewise omits `owner` from its published enum, but its reference page documents no 400 — see PROVENANCE.md \"Unproven / blockers\".",
+        "enum": ["editandshare", "edit", "comment", "view"]
+      },
+      "CollaboratorRoleRequest": {
+        "type": "object",
+        "description": "Request body for both collaborator upserts. Built inline in `pkg/connector/client/mutate.go`.",
+        "required": ["role"],
+        "properties": {
+          "role": { "$ref": "#/components/schemas/CollaboratorWriteRole" }
+        }
+      },
+      "FolderUserCollaboration": {
+        "type": "object",
+        "description": "A user's direct collaborator record on a folder (`client.FolderUserCollaboration`).",
+        "required": ["folderId", "userId", "role", "created"],
+        "properties": {
+          "folderId": { "type": "integer", "description": "ID of the folder. A NUMBER here, unlike the document equivalent." },
+          "userId": { "type": "integer", "description": "ID of the collaborating user. Becomes the grant principal's resource ID — parity-critical." },
+          "role": { "$ref": "#/components/schemas/CollaboratorRole" },
+          "created": { "type": "string", "format": "date-time", "description": "When the collaboration was created. Carried into grant metadata, and omitted from it when zero." }
+        }
+      },
+      "DocumentUserCollaboration": {
+        "type": "object",
+        "description": "A user's direct collaborator record on a document (`client.DocumentUserCollaboration`).",
+        "required": ["documentId", "userId", "role", "created"],
+        "properties": {
+          "documentId": { "type": "string", "format": "uuid", "description": "ID of the document. A STRING here, unlike the folder equivalent." },
+          "userId": { "type": "integer", "description": "ID of the collaborating user. Becomes the grant principal's resource ID — parity-critical." },
+          "role": { "$ref": "#/components/schemas/CollaboratorRole" },
+          "created": { "type": "string", "format": "date-time", "description": "When the collaboration was created. Carried into grant metadata, and omitted from it when zero." }
+        }
+      },
+      "LucidError": {
+        "type": "object",
+        "description": "Lucid's REST error envelope (`reference-rest`). The connector does not decode it: `uhttp` maps the HTTP status onto a gRPC code and `pkg/connector/client/helpers.go` classifies from there. The shape is recorded because the collaborator upserts decode an error body into the collaborator schema when one is present, and because the test-server reproduces it.",
+        "properties": {
+          "code": { "type": "string", "description": "Machine-readable error identifier, e.g. `unknownOperation`, `badRequest`, `unauthorized`." },
+          "message": { "type": "string", "description": "Human-readable description." },
+          "details": { "type": "object", "description": "Optional, error-specific detail." },
+          "requestId": { "type": "string", "description": "Optional request identifier for support." }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "description": "Form-encoded body sent by `golang.org/x/oauth2` for the refresh_token grant. `client_id`/`client_secret` may instead be sent via HTTP Basic auth.",
+        "required": ["grant_type", "refresh_token"],
+        "properties": {
+          "grant_type": { "type": "string", "enum": ["refresh_token"] },
+          "refresh_token": { "type": "string" },
+          "client_id": { "type": "string" },
+          "client_secret": { "type": "string" }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "Narrowed to the fields `oauth2.Token` consumes. Lucid documents more (`expires`, `client_id`, `scopes`, `user_id`, `account_id`); the connector reads none of them.",
+        "properties": {
+          "access_token": { "type": "string", "description": "Bearer token for subsequent OAuth2-authenticated REST calls." },
+          "token_type": { "type": "string", "description": "Always `bearer`." },
+          "expires_in": { "type": "number", "description": "Lifetime of the access token, in seconds." },
+          "refresh_token": { "type": "string", "description": "Issued when the `offline_access` scope was granted." }
+        }
+      },
+      "ScimPatchOp": {
+        "type": "object",
+        "description": "SCIM 2.0 PatchOp request body (`client.ScimPatchOp`).",
+        "required": ["schemas", "Operations"],
+        "properties": {
+          "schemas": {
+            "type": "array",
+            "description": "Lucid's PATCH example uses the core User URN here rather than RFC 7644's PatchOp URN, and the connector follows Lucid.",
+            "items": { "type": "string" },
+            "example": ["urn:ietf:params:scim:schemas:core:2.0:User"]
+          },
+          "Operations": {
+            "type": "array",
+            "description": "Capital `O`, per SCIM.",
+            "items": { "$ref": "#/components/schemas/ScimPatchOperation" }
+          }
+        }
+      },
+      "ScimPatchOperation": {
+        "type": "object",
+        "description": "One operation within a PatchOp (`client.ScimPatchOperation`). The connector only ever sends `replace`.",
+        "required": ["op", "path", "value"],
+        "properties": {
+          "op": { "type": "string", "description": "Lucid documents `add`, `remove` and `replace`; the connector sends only `replace`.", "enum": ["add", "remove", "replace"] },
+          "path": {
+            "type": "string",
+            "description": "Attribute path. The connector sends exactly these five, all bare (unfiltered) paths — Lucid publishes no filtered-path example.",
+            "enum": ["active", "name.givenName", "name.familyName", "userName", "emails", "roles"]
+          },
+          "value": { "description": "The replacement value: boolean for `active`, string for the name/userName paths, array of objects for `emails` and `roles`." }
+        }
+      },
+      "ScimUser": {
+        "type": "object",
+        "description": "SCIM 2.0 User resource, narrowed to the attributes `client.ScimUser` declares. Lucid returns more (`meta`, `groups`, `name.formatted`, enterprise extensions); the connector ignores them. Every field is optional: a 204 leaves the whole struct zero-valued.",
+        "properties": {
+          "id": { "type": "string", "description": "SCIM resource ID, `lucid-`-prefixed (e.g. `lucid-1234`) — NOT the REST integer user ID.", "example": "lucid-1234" },
+          "userName": { "type": "string", "description": "Usually the email address." },
+          "active": { "type": "boolean", "description": "Whether the user may authenticate. Decoded into a `*bool` so an absent value is distinguishable from `false`: the connector reports a deactivation as confirmed only on an explicit value." },
+          "externalId": { "type": "string", "description": "Client-defined identifier." },
+          "name": { "$ref": "#/components/schemas/ScimUserName" },
+          "emails": { "type": "array", "items": { "$ref": "#/components/schemas/ScimUserEmail" } },
+          "roles": { "type": "array", "items": { "$ref": "#/components/schemas/ScimUserRole" } }
+        }
+      },
+      "ScimUserName": {
+        "type": "object",
+        "description": "The SCIM complex `name` attribute, narrowed to what the connector reads. Lucid also returns `formatted`.",
+        "properties": {
+          "givenName": { "type": "string" },
+          "familyName": { "type": "string" }
+        }
+      },
+      "ScimUserEmail": {
+        "type": "object",
+        "description": "One entry of the multi-valued `emails` attribute. The connector treats the entry flagged `primary` as authoritative and falls back to the first entry, since Lucid's user model holds one address.",
+        "properties": {
+          "value": { "type": "string", "format": "email" },
+          "type": { "type": "string", "example": "work" },
+          "primary": { "type": "boolean" }
+        }
+      },
+      "ScimUserRole": {
+        "type": "object",
+        "description": "One entry of the multi-valued `roles` attribute.",
+        "properties": {
+          "value": { "$ref": "#/components/schemas/ScimRole" }
+        }
+      },
+      "ScimRole": {
+        "type": "string",
+        "description": "Lucid's SCIM role enum (PascalCase). Independent of the REST `UserRole` enum and strictly smaller: `account-owner`, `group-admin`, `organizational-group-admin` and `team-manager` have no SCIM counterpart and can only be set at account creation.",
+        "enum": [
+          "AccountAdmin",
+          "BillingAdmin",
+          "Developer",
+          "DocumentAdmin",
+          "EnterpriseShieldAdmin",
+          "TemplateAdmin"
+        ]
+      }
+    }
+  }
+}

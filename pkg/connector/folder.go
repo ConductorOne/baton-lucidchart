@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -116,9 +113,12 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts 
 			return nil, nil, err
 		}
 
-		metadata := map[string]interface{}{
-			metaRole:    collaborator.Role,
-			metaCreated: collaborator.Created.String(),
+		// Omit metaCreated rather than serialize a zero time: a record whose
+		// created is missing or undecodable would otherwise publish a fabricated
+		// "0001-01-01 00:00:00 +0000 UTC". Matches every Grant() path below.
+		metadata := map[string]interface{}{metaRole: collaborator.Role}
+		if !collaborator.Created.IsZero() {
+			metadata[metaCreated] = collaborator.Created.String()
 		}
 
 		newGrant := grant.NewGrant(resource, folderHasUserAccessEntitlement+collaborator.Role, userID, grant.WithGrantMetadata(metadata))
@@ -130,6 +130,7 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts 
 }
 
 func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	if resource.Id.ResourceType == userResourceType.Id {
 		userId := resource.Id.Resource
 		folderId := entitlement.Resource.Id.Resource
@@ -141,8 +142,85 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 
 		role := splitted[1]
 
+		// Pre-check the current role so a no-op re-grant reports GrantAlreadyExists.
+		// Best-effort: any read error falls through to the authoritative upsert.
+		//
+		// preCheckSaysAbsent separates the two things a nil `current` can mean: a
+		// 404, Lucid answering "this user holds no direct share", versus an
+		// ambiguous failure — 403, 5xx, a timeout — after which nothing at all is
+		// known. The 409 guard below is stricter in the first case.
+		var preCheckSaysAbsent bool
+		current, err := o.client.GetFolderUserCollaborator(ctx, folderId, userId)
+		if err != nil {
+			preCheckSaysAbsent = client.IsNotFoundError(err)
+
+			// Warn only for 403, the one failure with an actionable remedy (the API
+			// key may need broader access, or the resource may be gone). Everything
+			// else — the expected 404, 5xx, timeouts, tenants without the GET —
+			// stays at Debug: nobody can act on it, and it can recur on every grant.
+			if client.IsPermissionDeniedError(err) {
+				l.Warn("baton-lucidchart: folder collaborator pre-check GET denied — the Lucid API key may lack access to this folder, or the folder no longer exists; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			} else {
+				l.Debug("baton-lucidchart: folder collaborator pre-check GET failed; falling through to upsert",
+					zap.String("folder_id", folderId),
+					zap.String("user_id", userId),
+					zap.Error(err),
+				)
+			}
+		} else if current.Role == role {
+			// Return the grant alongside GrantAlreadyExists so C1 materializes the
+			// membership now instead of waiting for the next sync; the annotation
+			// alone carries no grant data. The ID and metadata match what Grants() emits.
+			metadata := map[string]interface{}{metaRole: current.Role}
+			if !current.Created.IsZero() {
+				metadata[metaCreated] = current.Created.String()
+			}
+			newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+			return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+		}
+
 		response, err := o.client.UpsertFolderUserCollaborator(ctx, folderId, userId, role)
 		if err != nil {
+			// Lucid's upsert is documented as never returning 409 today, but if it
+			// ever does, treat it as an idempotent success rather than a failure —
+			// but only when the conflict really is about the role we asked for.
+			// When Lucid returns the conflicting record in the 409 body (the upsert
+			// decodes it before checking the status), that record is authoritative.
+			// If it names a *different* role, the requested role genuinely was not
+			// granted: the emitted grant is keyed on entitlement.Slug, so reporting
+			// GrantAlreadyExists would make C1 materialize an entitlement the user
+			// does not hold until the next sync corrects it. Fall through to the
+			// real error in that case, and metaCreated is omitted rather than
+			// fabricated from a zero time.
+			//
+			// A successful pre-check outranks an absent role in the 409 body: if
+			// current != nil the GET returned a record, and the equal-role case
+			// already returned above, so current.Role != role is known. Treating an
+			// undecodable 409 as idempotent there would claim a role the user
+			// demonstrably does not hold.
+			if client.IsConflictError(err) && current == nil {
+				// How much the 409 has to prove depends on what the pre-check
+				// established. After a 404 the user provably held no direct share, so
+				// only a decoded, matching role is enough to overturn that and call
+				// the conflict idempotent — an undecodable body is likelier a plain
+				// failed PUT than a share that materialized between the two calls.
+				// After an ambiguous failure (403/5xx/timeout) or no pre-check at all,
+				// nothing is known either way, so a silent 409 stays idempotent: that
+				// is the conservative reading when the alternative is failing a grant
+				// whose target state may already be correct.
+				if response.Role == role || (!preCheckSaysAbsent && response.Role == "") {
+					metadata := map[string]interface{}{metaRole: role}
+					if !response.Created.IsZero() {
+						metadata[metaCreated] = response.Created.String()
+					}
+					newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+					return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
+				}
+			}
 			return nil, nil, err
 		}
 
@@ -151,12 +229,24 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			return nil, nil, err
 		}
 
-		metadata := map[string]interface{}{
-			metaRole:    response.Role,
-			metaCreated: response.Created.String(),
+		// Same omit-when-zero rule as the branches above and Grants(): if the
+		// upsert response carried no usable created timestamp, leave the key out
+		// instead of publishing a zero time as if it were real.
+		metadata := map[string]interface{}{metaRole: response.Role}
+		if !response.Created.IsZero() {
+			metadata[metaCreated] = response.Created.String()
 		}
 
-		newGrant := grant.NewGrant(resource, folderHasUserAccessEntitlement+response.Role, userID, grant.WithGrantMetadata(metadata))
+		// The entitlement's resource (the folder) is the first argument, not the
+		// principal: NewGrant keys NewEntitlementID on it, so passing the user here
+		// collides across every folder the same user holds the same role on.
+		// Matches the pre-check and 409 branches above and what Grants() emits.
+		//
+		// Keyed on entitlement.Slug — the entitlement C1 actually asked for —
+		// rather than rebuilt from the role Lucid echoed back, so a normalized or
+		// substituted role in the response can never emit a grant for an
+		// entitlement that was never requested.
+		newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, userID, grant.WithGrantMetadata(metadata))
 
 		return []*v2.Grant{newGrant}, nil, nil
 	}
@@ -169,9 +259,11 @@ func (o *folderBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotation
 		userId := grant.Principal.Id.Resource
 		folderId := grant.Entitlement.Resource.Id.Resource
 
+		// Remove the user's collaborator record entirely. A 404 (already gone) is
+		// an idempotent success (GrantAlreadyRevoked).
 		err := o.client.DeleteFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
-			if status.Code(err) == codes.NotFound {
+			if client.IsNotFoundError(err) {
 				return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 			}
 			return nil, err
