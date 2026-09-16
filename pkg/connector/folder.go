@@ -113,9 +113,12 @@ func (o *folderBuilder) Grants(ctx context.Context, resource *v2.Resource, opts 
 			return nil, nil, err
 		}
 
-		metadata := map[string]interface{}{
-			metaRole:    collaborator.Role,
-			metaCreated: collaborator.Created.String(),
+		// Omit metaCreated rather than serialize a zero time: a record whose
+		// created is missing or undecodable would otherwise publish a fabricated
+		// "0001-01-01 00:00:00 +0000 UTC". Matches every Grant() path below.
+		metadata := map[string]interface{}{metaRole: collaborator.Role}
+		if !collaborator.Created.IsZero() {
+			metadata[metaCreated] = collaborator.Created.String()
 		}
 
 		newGrant := grant.NewGrant(resource, folderHasUserAccessEntitlement+collaborator.Role, userID, grant.WithGrantMetadata(metadata))
@@ -141,8 +144,16 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 
 		// Pre-check the current role so a no-op re-grant reports GrantAlreadyExists.
 		// Best-effort: any read error falls through to the authoritative upsert.
+		//
+		// preCheckSaysAbsent separates the two things a nil `current` can mean: a
+		// 404 (Lucid positively answered "this user holds no direct share") versus
+		// an ambiguous failure — 403, 5xx, a timeout — after which nothing at all
+		// is known. The 409 guard below is stricter in the first case.
+		var preCheckSaysAbsent bool
 		current, err := o.client.GetFolderUserCollaborator(ctx, folderId, userId)
 		if err != nil {
+			preCheckSaysAbsent = client.IsNotFoundError(err)
+
 			// Warn only for 403, the one failure the client can act on (grant the
 			// share-read scope). Everything else — the expected 404, 5xx, timeouts,
 			// tenants without the GET — stays at Debug: nobody can act on it, and it
@@ -183,21 +194,32 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			// granted: the emitted grant is keyed on entitlement.Slug, so reporting
 			// GrantAlreadyExists would make C1 materialize an entitlement the user
 			// does not hold until the next sync corrects it. Fall through to the
-			// real error in that case. Only a matching or absent role is idempotent,
-			// and metaCreated is omitted rather than fabricated from a zero time.
+			// real error in that case, and metaCreated is omitted rather than
+			// fabricated from a zero time.
 			//
 			// A successful pre-check outranks an absent role in the 409 body: if
 			// current != nil the GET returned a record, and the equal-role case
 			// already returned above, so current.Role != role is known. Treating an
 			// undecodable 409 as idempotent there would claim a role the user
 			// demonstrably does not hold.
-			if client.IsConflictError(err) && current == nil && (response.Role == "" || response.Role == role) {
-				metadata := map[string]interface{}{metaRole: role}
-				if !response.Created.IsZero() {
-					metadata[metaCreated] = response.Created.String()
+			if client.IsConflictError(err) && current == nil {
+				// How much the 409 has to prove depends on what the pre-check
+				// established. After a 404 the user provably held no direct share, so
+				// only a decoded, matching role is enough to overturn that and call
+				// the conflict idempotent — an undecodable body is likelier a plain
+				// failed PUT than a share that materialized between the two calls.
+				// After an ambiguous failure (403/5xx/timeout) or no pre-check at all,
+				// nothing is known either way, so a silent 409 stays idempotent: that
+				// is the conservative reading when the alternative is failing a grant
+				// whose target state may already be correct.
+				if response.Role == role || (!preCheckSaysAbsent && response.Role == "") {
+					metadata := map[string]interface{}{metaRole: role}
+					if !response.Created.IsZero() {
+						metadata[metaCreated] = response.Created.String()
+					}
+					newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
+					return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
 				}
-				newGrant := grant.NewGrant(entitlement.Resource, entitlement.Slug, resource.Id, grant.WithGrantMetadata(metadata))
-				return []*v2.Grant{newGrant}, annotations.New(&v2.GrantAlreadyExists{}), nil
 			}
 			return nil, nil, err
 		}
@@ -207,9 +229,12 @@ func (o *folderBuilder) Grant(ctx context.Context, resource *v2.Resource, entitl
 			return nil, nil, err
 		}
 
-		metadata := map[string]interface{}{
-			metaRole:    response.Role,
-			metaCreated: response.Created.String(),
+		// Same omit-when-zero rule as the branches above and Grants(): if the
+		// upsert response carried no usable created timestamp, leave the key out
+		// instead of publishing a zero time as if it were real.
+		metadata := map[string]interface{}{metaRole: response.Role}
+		if !response.Created.IsZero() {
+			metadata[metaCreated] = response.Created.String()
 		}
 
 		// The entitlement's resource (the folder) is the first argument, not the

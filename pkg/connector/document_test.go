@@ -128,9 +128,14 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 
 	// Lucid's upsert is documented as never returning 409 today, but the error
 	// path defensively treats one as an idempotent success rather than a
-	// failure, in case that ever changes upstream.
-	t.Run("upsert 409 is treated as already-exists, not an error", func(t *testing.T) {
+	// failure, in case that ever changes upstream — provided the pre-check left
+	// real doubt about the current state. Here the pre-check GET fails with a
+	// 500: nothing is known, so a silent 409 is read as "the share is already
+	// there", the conservative choice when the alternative is failing a grant
+	// whose target state may already be correct.
+	t.Run("upsert 409 after an ambiguous pre-check failure is treated as already-exists", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "documents")
+		cts.getStatus = http.StatusInternalServerError
 		cts.putStatus = http.StatusConflict
 		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
 
@@ -154,9 +159,33 @@ func TestDocumentGrantIdempotency(t *testing.T) {
 		require.NotContains(t, meta, metaCreated)
 	})
 
+	// The mirror of the case above, and the reason the pre-check outcome is
+	// tracked rather than collapsed into "current == nil": a 404 is Lucid
+	// positively answering "this user holds no direct share", not a failed read.
+	// A 409 that then names no role is no evidence at all against that answer —
+	// far likelier a plain failed PUT than a share that appeared between the two
+	// calls — so the error must surface instead of a GrantAlreadyExists that
+	// would make C1 materialize a grant the GET just disproved.
+	t.Run("upsert 409 with no record after a 404 pre-check returns the error", func(t *testing.T) {
+		cts := newCollaboratorTestServer(t, "documents")
+		// No seeded role: the pre-check GET 404s, proving absence.
+		cts.putStatus = http.StatusConflict
+		// putErrorReturnsRecord stays 0: a bare error envelope, so response.Role == "".
+		b := &documentBuilder{client: newTestClient(t, cts.server.URL)}
+
+		grants, annos, err := b.Grant(ctx, userPrincipal("200"), objectEntitlement(documentResourceType.Id, "doc-abc", "comment"))
+		require.Error(t, err, "a 404 pre-check outranks a 409 that cannot name a role")
+		require.Nil(t, grants, "no grant may be emitted for a role the pre-check proved absent")
+		require.Nil(t, annos)
+		require.False(t, annos.Contains(&v2.GrantAlreadyExists{}))
+		require.Equal(t, int64(1), cts.putCallCount())
+	})
+
 	// When the 409 body does carry the conflicting record, the upsert decodes it
 	// before checking the status, so the no-op grant can carry the same
-	// metaRole/metaCreated pair Grants() and the pre-check path emit.
+	// metaRole/metaCreated pair Grants() and the pre-check path emit. The role it
+	// names matches the one requested, which is what the stricter post-404 rule
+	// demands, so this stays idempotent even though the pre-check 404'd.
 	t.Run("upsert 409 carrying the record attaches metaCreated", func(t *testing.T) {
 		cts := newCollaboratorTestServer(t, "documents")
 		cts.putStatus = http.StatusConflict
