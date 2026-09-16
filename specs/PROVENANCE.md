@@ -68,7 +68,7 @@ Recorded rather than guessed, per the skill's "Do Not" section.
    `x-unproven: true` because the connector reads it — dropping a declared field is not allowed —
    but it is almost certainly dead. Removing it is a Go change and out of scope here.
 2. **`PUT .../shares/users/{userId}` 409 — undocumented status.** Lucid documents 400/403 on the
-   folder upsert and 403 only on the document upsert (see 4). The connector's grant-idempotency path (CXH-2285) depends on a 409
+   folder upsert and 403 only on the document upsert (see 4). The connector's grant-idempotency path depends on a 409
    whose body may carry the conflicting collaborator record, and the test suite injects exactly
    that. Modelled with the collaborator schema as its body and flagged in the description as
    undocumented. **Unconfirmed against Lucid's docs; confirmed only by this connector's own code
@@ -77,7 +77,7 @@ Recorded rather than guessed, per the skill's "Do Not" section.
    publishes the ancestor-access caveat for *folders* ("A user having access to a folder through
    one of the folder's ancestors will not be shown through this API") and says nothing equivalent
    for documents. The document endpoint's direct-only behaviour was verified empirically against a
-   live tenant under CXH-2285 and is recorded in the operation description as observed. If Lucid
+   live tenant and is recorded in the operation description as observed. If Lucid
    starts reporting inherited access there, the Grant short-circuit's safety argument breaks.
 4. **`upsertDocumentUserCollaborator` 400 for the `owner` role — asymmetric, unconfirmed.**
    [reference/putfolderusercollaborator][pfuc] documents a 400 ("Bad Request when trying to add or

@@ -137,7 +137,7 @@
       "get": {
         "operationId": "getUser",
         "summary": "Get one user by REST user ID",
-        "description": "Called before `transferUserContent` to resolve a user's email address, which that endpoint requires instead of an ID (CXH-1488).\n\nLucid returns **403, not 404**, for a user that does not exist: \"if the user does not belong to the authenticated account or if the user does not exist\". The connector therefore cannot treat 403 as \"gone\" and disambiguates through SCIM `GET /Users/{id}` instead (see `client.IsPermissionDeniedError`, `pkg/connector/client/helpers.go:19`).",
+        "description": "Called before `transferUserContent` to resolve a user's email address, which that endpoint requires instead of an ID.\n\nLucid returns **403, not 404**, for a user that does not exist: \"if the user does not belong to the authenticated account or if the user does not exist\". The connector therefore cannot treat 403 as \"gone\" and disambiguates through SCIM `GET /Users/{id}` instead (see `client.IsPermissionDeniedError`, `pkg/connector/client/helpers.go:19`).",
         "tags": ["users"],
         "security": [{ "lucidOAuth2": [] }],
         "x-client-location": "pkg/connector/client/query.go:29",
@@ -170,7 +170,7 @@
       "post": {
         "operationId": "transferUserContent",
         "summary": "Transfer all documents owned by one user to another",
-        "description": "The precondition for deleting a user whose content must be retained. Both fields are **email addresses**, not user IDs — passing an ID yields 400 (this was CXH-1488).\n\nRate limited to 30 requests per 5 seconds per account; a 429 carries `Retry-After`.",
+        "description": "The precondition for deleting a user whose content must be retained. Both fields are **email addresses**, not user IDs — passing an ID yields 400.\n\nRate limited to 30 requests per 5 seconds per account; a 429 carries `Retry-After`.",
         "tags": ["users"],
         "security": [{ "lucidOAuth2": [] }],
         "x-client-location": "pkg/connector/client/user_management.go:135",
@@ -334,7 +334,7 @@
       "put": {
         "operationId": "upsertFolderUserCollaborator",
         "summary": "Create or update a user's collaborator role on a folder",
-        "description": "Backs `folderBuilder.Grant`. Lucid answers 200 when it updates an existing record and 201 when it creates one; the connector does not distinguish them.\n\nThe undocumented 409 below is load-bearing for grant idempotency (CXH-2285) — see its description.",
+        "description": "Backs `folderBuilder.Grant`. Lucid answers 200 when it updates an existing record and 201 when it creates one; the connector does not distinguish them.\n\nThe undocumented 409 below is load-bearing for grant idempotency — see its description.",
         "tags": ["folders"],
         "security": [{ "lucidApiKey": [] }],
         "x-client-location": "pkg/connector/client/mutate.go:14",
@@ -371,7 +371,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
           },
           "409": {
-            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it (CXH-2285) and the test suite injects it. The body may carry the conflicting FolderUserCollaborator record, which `Grant` decodes before the status check: a 409 is an idempotent `GrantAlreadyExists` only when the conflicting record's role matches what was requested (or the record carries no role and the pre-check did not already confirm the user holds no share), and is surfaced as an error otherwise.",
+            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it and the test suite injects it. The body may carry the conflicting FolderUserCollaborator record, which `Grant` decodes before the status check: a 409 is an idempotent `GrantAlreadyExists` only when the conflicting record's role matches what was requested (or the record carries no role and the pre-check did not already confirm the user holds no share), and is surfaced as an error otherwise.",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FolderUserCollaboration" } } }
           }
         }
@@ -443,7 +443,7 @@
       "get": {
         "operationId": "getDocumentUserCollaborator",
         "summary": "Get one user's collaborator role on a document",
-        "description": "The read-before-write pre-check in `documentBuilder.Grant`. Sent with `uhttp.WithNoCache()` for the same reason as the folder equivalent.\n\n**Direct-only, but not on Lucid's word.** Lucid publishes the ancestor-access caveat for folders and says nothing about it here. The behaviour was verified empirically against a live tenant under CXH-2285: a user shared only on the parent folder stays 404 at this endpoint and does not appear in `listDocumentUserCollaborators`. That is what makes the Grant no-op short-circuit safe. If Lucid ever starts reporting inherited access here, this assumption breaks.",
+        "description": "The read-before-write pre-check in `documentBuilder.Grant`. Sent with `uhttp.WithNoCache()` for the same reason as the folder equivalent.\n\n**Direct-only, but not on Lucid's word.** Lucid publishes the ancestor-access caveat for folders and says nothing about it here. The behaviour was verified empirically against a live tenant: a user shared only on the parent folder stays 404 at this endpoint and does not appear in `listDocumentUserCollaborators`. That is what makes the Grant no-op short-circuit safe. If Lucid ever starts reporting inherited access here, this assumption breaks.",
         "tags": ["documents"],
         "security": [{ "lucidApiKey": [] }],
         "x-client-location": "pkg/connector/client/query.go:185",
@@ -505,7 +505,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LucidError" } } }
           },
           "409": {
-            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it (CXH-2285) and the test suite injects it. The body may carry the conflicting DocumentUserCollaborator record; the same role-match rule as the folder upsert decides whether it is an idempotent `GrantAlreadyExists` or a surfaced error.",
+            "description": "Conflict. **Not documented by Lucid** — recorded here because the connector handles it and the test suite injects it. The body may carry the conflicting DocumentUserCollaborator record; the same role-match rule as the folder upsert decides whether it is an idempotent `GrantAlreadyExists` or a surfaced error.",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUserCollaboration" } } }
           }
         }

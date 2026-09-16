@@ -169,10 +169,10 @@ func (o *documentBuilder) Grant(ctx context.Context, resource *v2.Resource, enti
 		if err != nil {
 			preCheckSaysAbsent = client.IsNotFoundError(err)
 
-			// Warn only for 403, the one failure the client can act on (grant the
-			// share-read scope). Everything else — the expected 404, 5xx, timeouts,
-			// tenants without the GET — stays at Debug: nobody can act on it, and it
-			// can recur on every grant.
+			// Warn only for 403, the one failure with an actionable remedy (the API
+			// key may need broader access, or the resource may be gone). Everything
+			// else — the expected 404, 5xx, timeouts, tenants without the GET —
+			// stays at Debug: nobody can act on it, and it can recur on every grant.
 			if client.IsPermissionDeniedError(err) {
 				l.Warn("baton-lucidchart: document collaborator pre-check GET denied — the Lucid API key may lack access to this document, or the document no longer exists; falling through to upsert",
 					zap.String("document_id", documentId),
