@@ -173,7 +173,7 @@ func (c *LucidchartClient) ListDocumentUserCollaborators(ctx context.Context, do
 // on a document via GET /documents/{id}/shares/users/{userId}. Unlike the folder
 // equivalent, Lucid's docs for this endpoint don't state whether inherited
 // parent-folder access surfaces here, so it was verified empirically against the
-// live Lucid API (CXH-2285): with a user shared only on a parent folder, this
+// live Lucid API: with a user shared only on a parent folder, this
 // endpoint stays at 404 and ListDocumentUserCollaborators stays unchanged. It is
 // therefore direct-only — a role returned here is always a direct document share,
 // never an inherited one. That is what makes the Grant no-op short-circuit safe:
