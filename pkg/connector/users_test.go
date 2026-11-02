@@ -9,6 +9,7 @@ import (
 
 	"github.com/conductorone/baton-lucidchart/pkg/connector/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
@@ -418,6 +419,30 @@ func TestUserResource_MissingEnabledDefaultsToEnabled(t *testing.T) {
 	res, err := userResource(client.User{Email: "a@example.com", UserId: 1})
 	require.NoError(t, err)
 	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, res.GetStatus().GetStatus())
+}
+
+func TestUserResource_StatusSurfacesAgree(t *testing.T) {
+	tests := []struct {
+		name           string
+		enabled        *bool
+		resourceStatus v2.Status_ResourceStatus
+		traitStatus    v2.UserTrait_Status_Status
+	}{
+		{"disabled", boolPtr(false), v2.Status_RESOURCE_STATUS_DISABLED, v2.UserTrait_Status_STATUS_DISABLED},
+		{"enabled", boolPtr(true), v2.Status_RESOURCE_STATUS_ENABLED, v2.UserTrait_Status_STATUS_ENABLED},
+		{"missing enabled defaults to enabled", nil, v2.Status_RESOURCE_STATUS_ENABLED, v2.UserTrait_Status_STATUS_ENABLED},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := userResource(client.User{Email: "a@example.com", UserId: 1, Enabled: tt.enabled})
+			require.NoError(t, err)
+			require.Equal(t, tt.resourceStatus, res.GetStatus().GetStatus())
+			trait, err := rs.GetUserTrait(res)
+			require.NoError(t, err)
+			//nolint:staticcheck // trait.GetStatus is deprecated on baton-sdk v0.43.0; reading it back is the only way to assert the trait status agrees with the resource status
+			require.Equal(t, tt.traitStatus, trait.GetStatus().GetStatus())
+		})
+	}
 }
 
 func boolPtr(b bool) *bool { return &b }
