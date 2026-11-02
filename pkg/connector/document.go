@@ -92,9 +92,11 @@ func (o *documentBuilder) Entitlements(_ context.Context, resource *v2.Resource,
 
 	for _, role := range client.UserFolderRoles {
 		assigmentOptions := []entitlement.EntitlementOption{
-			entitlement.WithGrantableTo(userResourceType),
 			entitlement.WithDescription(fmt.Sprintf("%s can %s on %s", userResourceType.DisplayName, role, resource.DisplayName)),
 			entitlement.WithDisplayName(fmt.Sprintf("%s is %s of %s", userResourceType.DisplayName, role, resource.DisplayName)),
+		}
+		if client.IsWritableCollaboratorRole(role) {
+			assigmentOptions = append(assigmentOptions, entitlement.WithGrantableTo(userResourceType))
 		}
 		rv = append(rv, entitlement.NewPermissionEntitlement(resource, documentHasUserAccessEntitlement+role, assigmentOptions...))
 	}
