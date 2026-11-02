@@ -225,8 +225,10 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 
 func userResource(user client.User) (*v2.Resource, error) {
 	status := v2.Status_RESOURCE_STATUS_ENABLED
+	traitStatus := v2.UserTrait_Status_STATUS_ENABLED
 	if user.Enabled != nil && !*user.Enabled {
 		status = v2.Status_RESOURCE_STATUS_DISABLED
+		traitStatus = v2.UserTrait_Status_STATUS_DISABLED
 	}
 
 	// structpb has no []string case, so roles have to be widened.
@@ -248,6 +250,8 @@ func userResource(user client.User) (*v2.Resource, error) {
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithEmail(user.Email, true),
 		rs.WithUserLogin(user.Email),
+		//nolint:staticcheck // baton-sdk v0.43.0 offers no non-deprecated way to set user-trait status; SA1019 kept so the trait status agrees with the resource status derived above
+		rs.WithStatus(traitStatus),
 	}
 
 	newUserResource, err := rs.NewUserResource(
