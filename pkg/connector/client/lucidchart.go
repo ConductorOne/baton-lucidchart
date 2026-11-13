@@ -26,6 +26,33 @@ var UserFolderRoles = []string{
 	"view",
 }
 
+// UserFolderWritableRoles is the set of folder/document collaborator roles
+// Lucid accepts when writing a user collaborator: PUT /v1/folders/{id}/shares/users/{userId}
+// and its document equivalent accept only [editandshare, edit, comment, view].
+// Lucid documents that attempting to set the owner role returns 400 ("Bad
+// Request when trying to add or update a Folder User Collaborator to have the
+// 'owner' role"), and that revoking the folder owner's collaboration returns
+// 403. The owner role therefore appears only as an upstream fact (see Grants)
+// and is never offered as a grantable entitlement.
+// https://lucid.readme.io/reference/getfolderusercollaborators
+var UserFolderWritableRoles = []string{
+	"editandshare",
+	"edit",
+	"comment",
+	"view",
+}
+
+// IsWritableCollaboratorRole reports whether role is one Lucid accepts when
+// writing a folder or document user collaborator.
+func IsWritableCollaboratorRole(role string) bool {
+	for _, writable := range UserFolderWritableRoles {
+		if writable == role {
+			return true
+		}
+	}
+	return false
+}
+
 type LucidAuthType string
 
 const (
